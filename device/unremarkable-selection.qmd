@@ -1,0 +1,270 @@
+; unremarkable - a short poem about whatever you circle on the page.
+; Adds a button to the handwriting selection menu, runs reMarkable's own
+; recognizer over the selection, and feeds the text to the local model.
+
+AFFECT /qml/common/SceneSelectionHandler.qml
+    TRAVERSE ?#selectionRoot
+        LOCATE BEFORE cut
+        INSERT {
+            signal askHaiku
+        }
+    END TRAVERSE
+    TRAVERSE ?#tools
+        LOCATE BEFORE ArkControls.ContextualMenu.Button#convertToText
+        INSERT {
+            ArkControls.ContextualMenu.Button {
+                id: askHaikuButton
+                focusPolicy: Qt.NoFocus
+                type: tools.type
+                iconSource: "qrc:/ark/icons/notebook_sparkles"
+                onClicked: selectionRoot.askHaiku()
+            }
+        }
+    END TRAVERSE
+END AFFECT
+
+AFFECT /qml/device/view/documentview/DeviceSceneView.qml
+    TRAVERSE ?#selectionHandler
+        LOCATE AFTER ALL
+        INSERT {
+            onAskHaiku: {
+                console.log("[unremarkable] askHaiku requested");
+                root.convertSelection(function () {
+                    hwcSelectionTool.askHaikuFrom(
+                        controller.cloneSelectedItems(controller.currentLayer,
+                                                      root.defaultScale));
+                    root.endItemSelection();
+                });
+            }
+        }
+    END TRAVERSE
+END AFFECT
+
+AFFECT /qml/device/view/documentview/HwcSelection.qml
+    IMPORT QtQuick.Controls 2.0
+    IMPORT net.asivery.CommandExecutor 1.0
+
+    TRAVERSE ?#root
+        LOCATE BEFORE convert
+        INSERT {
+            property bool askingHaiku: false
+            property string haikuSubject: ""
+            property string haikuText: ""
+            property string haikuStatus: "idle"
+            property var haikuMeta: null
+
+            CommandExecutor { id: haikuRunner }
+
+            function askHaikuFrom(items) {
+                askingHaiku = true;
+                Recognizer.startSelectionToolJob(items,
+                    Settings.handwritingConversionLanguage);
+            }
+
+            function haikuTopLevel() {
+                var node = haikuPopup.parent ? haikuPopup.parent : root;
+                node = root;
+                while (node.parent) { node = node.parent; }
+                return node;
+            }
+
+            function stripQuotes(text) {
+                var marks = String.fromCharCode(34, 39, 8220, 8221, 8216, 8217);
+                while (text.length > 0 && marks.indexOf(text.charAt(0)) >= 0) {
+                    text = text.substring(1);
+                }
+                while (text.length > 0
+                       && marks.indexOf(text.charAt(text.length - 1)) >= 0) {
+                    text = text.substring(0, text.length - 1);
+                }
+                return text.trim();
+            }
+
+            function wordCount(text) {
+                if (!text) return 0;
+                var parts = text.split(String.fromCharCode(10)).join(" ").split(" ");
+                var total = 0;
+                for (var i = 0; i < parts.length; i++) {
+                    if (parts[i].length > 0) total++;
+                }
+                return total;
+            }
+
+            function haikuPoem(raw) {
+                if (!raw) return "";
+                var text = raw;
+                var split = text.indexOf(String.fromCharCode(10, 10));
+                if (split >= 0) text = text.substring(0, split);
+                text = stripQuotes(text.trim());
+                var lines = text.split(String.fromCharCode(10));
+                if (lines.length > 6) lines = lines.slice(0, 6);
+                return lines.join(String.fromCharCode(10));
+            }
+
+            function haikuRead(path, cb) {
+                var xhr = new XMLHttpRequest();
+                xhr.onreadystatechange = function() {
+                    if (xhr.readyState === XMLHttpRequest.DONE) cb(xhr.responseText);
+                };
+                xhr.open("GET", "file://" + path);
+                xhr.send();
+            }
+
+            function haikuPoll() {
+                haikuRead("/home/root/unremarkable/state/out.txt",
+                          function(t) { root.haikuText = t; });
+                haikuRead("/home/root/unremarkable/state/status",
+                          function(s) {
+                              root.haikuStatus = s;
+                              if (s === "done") haikuTimer.stop();
+                          });
+                haikuRead("/home/root/unremarkable/state/meta.json",
+                          function(m) {
+                              try { root.haikuMeta = JSON.parse(m); }
+                              catch (e) { root.haikuMeta = null; }
+                          });
+            }
+
+            function askHaikuAbout(subject) {
+                root.haikuSubject = subject;
+                root.haikuText = "";
+                root.haikuStatus = "running";
+                haikuRunner.executeCommand("/home/root/unremarkable/ask-bg.sh",
+                                           ["about", subject, "80"]);
+                haikuPopup.parent = haikuTopLevel();
+                haikuPopup.open();
+                haikuTimer.start();
+            }
+
+            Timer {
+                id: haikuTimer
+                interval: 2000
+                repeat: true
+                onTriggered: root.haikuPoll()
+            }
+
+            Popup {
+                id: haikuPopup
+                modal: true
+                focus: true
+                width: 1000
+                height: 980
+                anchors.centerIn: parent
+                padding: 0
+                closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+                background: Rectangle {
+                    color: "#ffffff"
+                    border.color: "#000000"
+                    border.width: 3
+                }
+
+                contentItem: Item {
+                    Column {
+                        anchors.fill: parent
+                        anchors.margins: 64
+                        spacing: 0
+
+                        Text {
+                            text: "Unremarkable"
+                            font.family: "EB Garamond"
+                            font.pixelSize: 52
+                            font.weight: Font.Normal
+                            color: "#000000"
+                        }
+                        Text {
+                            text: (root.haikuStatus === "running"
+                                   ? "Generating a poem for \u201c"
+                                   : "A poem for \u201c")
+                                  + root.haikuSubject + "\u201d"
+                            font.family: "EB Garamond"
+                            font.italic: true
+                            font.pixelSize: 30
+                            color: "#000000"
+                            width: 872
+                            elide: Text.ElideRight
+                            topPadding: 6
+                        }
+
+                        Rectangle {
+                            width: 872; height: 2
+                            color: "#000000"
+                            y: 28
+                        }
+
+                        Item { width: 1; height: 70 }
+
+                        Text {
+                            width: 872
+                            text: root.haikuText === ""
+                                  ? "\u00b7 \u00b7 \u00b7"
+                                  : root.haikuPoem(root.haikuText)
+                            font.family: "EB Garamond"
+                            font.pixelSize: 46
+                            color: "#000000"
+                            lineHeight: 1.45
+                            lineHeightMode: Text.ProportionalHeight
+                            wrapMode: Text.WordWrap
+                            horizontalAlignment: Text.AlignHCenter
+                            maximumLineCount: 8
+                            elide: Text.ElideRight
+                        }
+                    }
+
+                    Column {
+                        anchors.bottom: parent.bottom
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.margins: 64
+                        spacing: 18
+
+                        Rectangle { width: 872; height: 1; color: "#000000" }
+
+                        Text {
+                            text: "SmolLM2-135M-Instruct \u00b7 fp32 \u00b7 armv7l @ 1.2GHz"
+                            font.family: "Noto Sans Mono"
+                            font.pixelSize: 19
+                            color: "#000000"
+                        }
+                        Text {
+                            text: root.haikuMeta
+                                  ? "ttft " + (root.haikuMeta.ttft_ms / 1000).toFixed(1)
+                                    + "s  \u00b7  " + root.haikuMeta.decode_tok_s.toFixed(2)
+                                    + " tok/s  \u00b7  " + root.haikuMeta.generated_tokens
+                                    + " tok  \u00b7  " + Math.round(root.haikuMeta.peak_rss_mib)
+                                    + " MiB rss"
+                                  : "generating \u00b7 " + root.wordCount(root.haikuText)
+                                    + " words \u00b7 ~1 tok/s"
+                            font.family: "Noto Sans Mono"
+                            font.pixelSize: 19
+                            color: "#000000"
+                        }
+                    }
+                }
+
+                onClosed: haikuTimer.stop()
+            }
+
+        }
+    END TRAVERSE
+
+    TRAVERSE ?#handwritingBar
+        REBUILD onFinishedChanged
+        LOCATE AFTER STREAM / { /
+        INSERT {
+if (askingHaiku) {
+    if (!finished) {
+        return;
+    }
+    var subject = recognitionJob.plainText.split(String.fromCharCode(10)).join(" ").trim();
+    console.log("[unremarkable] recognized subject: [" + subject + "]");
+    askingHaiku = false;
+    if (subject !== "") {
+        root.askHaikuAbout(subject);
+    }
+    return;
+}
+}
+        END REBUILD
+    END TRAVERSE
+END AFFECT

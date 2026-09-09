@@ -1,0 +1,269 @@
+; unremarkable - local LLM presets from Quick Settings.
+; Requires: qt-resource-rebuilder, qt-command-executor.
+
+SLOT unremarkableButton
+    INSERT {
+        QuickSettingsToggle {
+            id: unremarkableButton
+            iconSource: "qrc:/ark/icons/notebook_sparkles"
+            enabled: true
+            selected: false
+
+            property string outText: ""
+            property string runStatus: "idle"
+            property var meta: null
+
+            CommandExecutor { id: unremarkableRunner }
+
+            // xovi sets QML_XHR_ALLOW_FILE_READ, so the panel can poll the
+            // state files ask.sh streams into.
+            property string preset: ""
+
+            function stripQuotes(text) {
+                var marks = String.fromCharCode(34, 39, 8220, 8221, 8216, 8217);
+                while (text.length > 0 && marks.indexOf(text.charAt(0)) >= 0) {
+                    text = text.substring(1);
+                }
+                while (text.length > 0
+                       && marks.indexOf(text.charAt(text.length - 1)) >= 0) {
+                    text = text.substring(0, text.length - 1);
+                }
+                return text.trim();
+            }
+
+            function wordCount(text) {
+                if (!text) return 0;
+                var parts = text.split(String.fromCharCode(10)).join(" ").split(" ");
+                var total = 0;
+                for (var i = 0; i < parts.length; i++) {
+                    if (parts[i].length > 0) total++;
+                }
+                return total;
+            }
+
+            function firstStanza(raw) {
+                if (!raw) return "";
+                var text = raw;
+                var split = text.indexOf(String.fromCharCode(10, 10));
+                if (split >= 0) text = text.substring(0, split);
+                text = stripQuotes(text.trim());
+                var lines = text.split(String.fromCharCode(10));
+                if (lines.length > 10) lines = lines.slice(0, 10);
+                return lines.join(String.fromCharCode(10));
+            }
+
+            function readFile(path, cb) {
+                var xhr = new XMLHttpRequest();
+                xhr.onreadystatechange = function() {
+                    if (xhr.readyState === XMLHttpRequest.DONE) cb(xhr.responseText);
+                };
+                xhr.open("GET", "file://" + path);
+                xhr.send();
+            }
+
+            function poll() {
+                readFile("/home/root/unremarkable/state/out.txt",
+                         function(t) { unremarkableButton.outText = t; });
+                readFile("/home/root/unremarkable/state/status",
+                         function(s) {
+                             unremarkableButton.runStatus = s;
+                             if (s === "done") pollTimer.stop();
+                         });
+                readFile("/home/root/unremarkable/state/meta.json",
+                         function(m) {
+                             try { unremarkableButton.meta = JSON.parse(m); }
+                             catch (e) { unremarkableButton.meta = null; }
+                         });
+            }
+
+            // Window.window is null here and the toggle itself is only 96x96, so
+            // walk up to the scene root and centre the panel against that.
+            function topLevelItem() {
+                var node = unremarkableButton;
+                while (node.parent) { node = node.parent; }
+                return node;
+            }
+
+            function ask(name) {
+                console.log("[unremarkable] ask " + name);
+                unremarkableButton.preset = name;
+                var preset = name;
+                outText = "";
+                runStatus = "running";
+                unremarkableRunner.executeCommand("/bin/sh",
+                    ["-c", "/home/root/unremarkable/ask.sh " + preset
+                           + " 80 >/dev/null 2>&1 &"]);
+                pollTimer.start();
+            }
+
+            Timer {
+                id: pollTimer
+                interval: 2000
+                repeat: true
+                onTriggered: unremarkableButton.poll()
+            }
+
+            onClicked: {
+                selected = true;
+                var root = topLevelItem();
+                console.log("[unremarkable] root " + root.width + "x" + root.height);
+                unremarkablePanel.parent = root;
+                unremarkableButton.poll();
+                unremarkablePanel.open();
+            }
+
+            Popup {
+                id: unremarkablePanel
+                modal: true
+                focus: true
+                width: 1000
+                height: 1180
+                anchors.centerIn: parent
+                padding: 0
+                closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+                background: Rectangle {
+                    color: "#ffffff"
+                    border.color: "#000000"
+                    border.width: 3
+                }
+
+                onOpened: console.log("[unremarkable] opened in " + parent.width
+                                      + "x" + parent.height)
+
+                contentItem: Item {
+                    Column {
+                        anchors.fill: parent
+                        anchors.margins: 64
+                        spacing: 0
+
+                        Text {
+                            text: "Unremarkable"
+                            font.family: "EB Garamond"
+                            font.pixelSize: 52
+                            color: "#000000"
+                        }
+                        Text {
+                            text: unremarkableButton.runStatus === "running"
+                                  ? "Generating a " + unremarkableButton.preset
+                                    + "\u2026"
+                                  : "a small language model, thinking on this tablet"
+                            font.family: "EB Garamond"
+                            font.italic: true
+                            font.pixelSize: 28
+                            color: "#000000"
+                            topPadding: 6
+                        }
+
+                        Item { width: 1; height: 26 }
+                        Rectangle { width: 872; height: 2; color: "#000000" }
+                        Item { width: 1; height: 40 }
+
+                        Grid {
+                            columns: 2
+                            spacing: 20
+                            Repeater {
+                                model: [["poem", "Poem"], ["journal", "Journal"],
+                                        ["story", "Story"], ["idea", "Idea"]]
+                                Rectangle {
+                                    width: 426; height: 96
+                                    color: "#ffffff"
+                                    border.color: "#000000"
+                                    border.width: 2
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: modelData[1]
+                                        font.family: "EB Garamond"
+                                        font.pixelSize: 36
+                                        color: "#000000"
+                                    }
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        onClicked: unremarkableButton.ask(modelData[0])
+                                    }
+                                }
+                            }
+                        }
+
+                        Item { width: 1; height: 44 }
+
+                        Text {
+                            width: 872
+                            text: unremarkableButton.outText === ""
+                                  ? "\u00b7 \u00b7 \u00b7"
+                                  : unremarkableButton.firstStanza(
+                                        unremarkableButton.outText)
+                            font.family: "EB Garamond"
+                            font.pixelSize: 40
+                            color: "#000000"
+                            lineHeight: 1.4
+                            lineHeightMode: Text.ProportionalHeight
+                            wrapMode: Text.WordWrap
+                            maximumLineCount: 9
+                            elide: Text.ElideRight
+                        }
+                    }
+
+                    Column {
+                        anchors.bottom: parent.bottom
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.margins: 64
+                        spacing: 18
+
+                        Rectangle { width: 872; height: 1; color: "#000000" }
+                        Text {
+                            text: "SmolLM2-135M-Instruct \u00b7 135M params \u00b7 fp32 \u00b7 "
+                                  + "49152 vocab"
+                            font.family: "Noto Sans Mono"
+                            font.pixelSize: 19
+                            color: "#000000"
+                        }
+                        Text {
+                            text: unremarkableButton.meta
+                                  ? "ttft " + (unremarkableButton.meta.ttft_ms / 1000).toFixed(1)
+                                    + "s \u00b7 " + unremarkableButton.meta.decode_tok_s.toFixed(2)
+                                    + " tok/s \u00b7 " + unremarkableButton.meta.generated_tokens
+                                    + "/" + unremarkableButton.meta.context + " tok \u00b7 "
+                                    + Math.round(unremarkableButton.meta.peak_rss_mib) + " MiB"
+                                  : unremarkableButton.runStatus === "running"
+                                    ? "generating \u00b7 " + unremarkableButton.wordCount(
+                                        unremarkableButton.outText) + " words"
+                                    : "idle \u00b7 513 MiB weights + 22 MiB kv cache"
+                            font.family: "Noto Sans Mono"
+                            font.pixelSize: 19
+                            color: "#000000"
+                        }
+                    }
+                }
+
+                onClosed: {
+                    pollTimer.stop();
+                    unremarkableButton.selected = false;
+                }
+            }
+        }
+    }
+END SLOT
+
+AFFECT /qt/qml/xofm/modules/settings/qml/quicksettings/ToggleGrid.qml
+    IMPORT QtQuick.Window 2.0
+    IMPORT QtQuick.Controls 2.0
+    IMPORT xofm.libs.settings 1.0
+    IMPORT net.asivery.CommandExecutor 1.0
+    TRAVERSE ?#root
+        LOCATE AFTER Repeater
+        INSERT SLOT unremarkableButton
+    END TRAVERSE
+END AFFECT
+
+AFFECT /qt/qml/xofm/modules/settings/qml/quicksettings/ToggleColumn.qml
+    IMPORT QtQuick.Window 2.0
+    IMPORT QtQuick.Controls 2.0
+    IMPORT xofm.libs.settings 1.0
+    IMPORT net.asivery.CommandExecutor 1.0
+    TRAVERSE ?#root
+        LOCATE AFTER Repeater
+        INSERT SLOT unremarkableButton
+    END TRAVERSE
+END AFFECT

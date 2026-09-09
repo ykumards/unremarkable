@@ -1,0 +1,6 @@
+# Ubuntu 24.04 matches the tablet's runtime exactly: glibc 2.39 and GCC 13,
+# the same versions Codex Linux 5.8.203 ships.
+FROM ubuntu:24.04
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        crossbuild-essential-armhf make ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
