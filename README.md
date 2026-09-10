@@ -4,9 +4,10 @@
   <img src="assets/mascot.webp" alt="Unremarkable mascot: an unimpressed orange cat" width="400">
 </p>
 
-Run a tiny LLM on a reMarkable 2. Locally, slowly, in C++.
+A tiny LLM running entirely on a reMarkable 2.
 
-A small inference engine built to learn what makes LLMs fast on limited hardware.
+An inference engine written in C++23, built to learn how to make language models
+run faster on limited hardware.
 Loads weights into RAM and implements the forward pass, tokenizer, and sampling.
 Runs TinyStories 15M and SmolLM2-135M-Instruct, with optional tablet UI patches.
 
