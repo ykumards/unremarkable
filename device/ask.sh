@@ -64,8 +64,7 @@ if [ -d "$LOCK" ] && ! pidof unremarkable >/dev/null 2>&1; then
     rmdir "$LOCK" 2>/dev/null
 fi
 
-# One generation at a time. At 171 MiB memory is no longer the reason it was at
-# 540 MiB; the two Cortex-A7 cores are.
+# One generation at a time: a run already uses both Cortex-A7 cores.
 if ! mkdir "$LOCK" 2>/dev/null; then
   echo "A generation is already running." >&2
   exit 1
@@ -83,11 +82,11 @@ printf 'running' > "$STATE/status"
 # -a opens the reply for the model, so the words it continues from are ours.
 if [ -n "$OPENING" ]; then
   "$DIR/unremarkable" "$MODEL" -z "$TOKENIZER" -c 512 -y "" \
-      -t 0.8 -p 0.9 -s "$SEED" -i "$PROMPT" -a "$OPENING" -n "$LIMIT" \
+      -t 0.8 -p 0.9 -s "$SEED" -i "$PROMPT" -a "$OPENING" -n "$LIMIT" -j 2 \
       > "$STATE/out.txt" 2> "$STATE/meta.json"
 else
   "$DIR/unremarkable" "$MODEL" -z "$TOKENIZER" -c 512 -y "" \
-      -t 0.8 -p 0.9 -s "$SEED" -i "$PROMPT" -n "$LIMIT" \
+      -t 0.8 -p 0.9 -s "$SEED" -i "$PROMPT" -n "$LIMIT" -j 2 \
       > "$STATE/out.txt" 2> "$STATE/meta.json"
 fi
 

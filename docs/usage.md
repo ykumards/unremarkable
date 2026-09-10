@@ -66,6 +66,11 @@ Default sampling is greedy. For a repeatable sampled story:
   -i "Once upon a time" -t 0.8 -p 0.9 -s 42 -n 256
 ```
 
+`-j N` runs the projections on N threads; on the tablet's two cores `-j 2` is
+about 1.5x faster to decode and 1.6x to first token. Rows are split between
+threads and never summed apart, so the output does not depend on N. The default
+is 1, which is what the published measurements use.
+
 `-c 128` reduces cache capacity; it cannot exceed the checkpoint's maximum.
 `--help` lists the options. Model binaries and build outputs are ignored by Git;
 see [model instructions](../models/README.md).

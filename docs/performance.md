@@ -58,6 +58,33 @@ Accuracy against the FP32 checkpoint, over 11 positions of 49152 logits: mean
 absolute error 0.29 against a mean logit range of 28.9, worst 1.73, top-1
 agreement 10 of 11, top-5 overlap 53 of 55.
 
+## Memory roofline (2026-09-10)
+
+Sequential reads over a 144 MiB working set, the same NEON loop with a prefetch
+hint used for the kernel measurements:
+
+| Threads | GB/s | vs one core |
+| --- | ---: | ---: |
+| 1 | 1.423 | 1.00x |
+| 2 | 2.708 | 1.90x |
+| 3 | 2.643 | 1.86x |
+| 4 | 2.630 | 1.85x |
+
+One core does not saturate the memory controller. Two scale almost perfectly and
+then stop: three and four threads on two cores are slightly slower than two,
+which is what a controller limit rather than a core limit looks like. An earlier
+version of this file treated the single-core 1.40 GB/s as a device ceiling. It
+is not one, and neither is NXP's LPDDR3-1066 figure of 4.26 GB/s on a 32-bit
+bus, which is the bus rather than anything sustainable.
+
+Dividing by the 151 MB of weights a token reads gives the useful roofline:
+**17.9 tokens per second** on two cores, 9.4 on one. Decode currently reaches
+5.88, which is 33% of the two-core roofline, so this engine is bound by
+arithmetic with roughly threefold headroom before memory becomes the limit. That
+also explains why threading returned 1.51x where a pure streaming read returns
+1.90x: the shortfall is the per-projection handoff and the sequential remainder,
+not bandwidth.
+
 ## Fixed workload
 
 - reMarkable 2, Cortex-A7, single-threaded, default `ondemand` governor.

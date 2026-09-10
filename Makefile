@@ -1,11 +1,11 @@
 CXX ?= c++
 CXXFLAGS ?= -O2 -std=c++23 -Wall -Wextra -Wpedantic -ffp-contract=off
 CPPFLAGS ?= -Isrc -D_FILE_OFFSET_BITS=64
-LDLIBS = -lm
+LDLIBS = -lm -lpthread
 PYTHON ?= python3
-SOURCES = src/main.cpp src/engine.cpp src/kernels.cpp src/tokenizer.cpp
-HEADERS = src/engine.h src/kernels.h src/tokenizer.h
-CORE = src/engine.cpp src/kernels.cpp src/tokenizer.cpp
+SOURCES = src/main.cpp src/engine.cpp src/kernels.cpp src/pool.cpp src/tokenizer.cpp
+HEADERS = src/engine.h src/kernels.h src/pool.h src/tokenizer.h
+CORE = src/engine.cpp src/kernels.cpp src/pool.cpp src/tokenizer.cpp
 
 .PHONY: all test sanitize models test-models chat-model chat-model-q8 tablet tablet-image
 all: build/unremarkable

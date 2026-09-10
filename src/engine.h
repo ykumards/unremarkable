@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "kernels.h"
+#include "pool.h"
 
 namespace unremarkable {
 
@@ -24,7 +25,7 @@ struct Config {
 // by tools/export_hf.py, and owns resident weights and sequence state.
 class Engine {
  public:
-  explicit Engine(const std::string& checkpoint, int context = 0);
+  Engine(const std::string& checkpoint, int context = 0, int threads = 1);
   Engine(const Engine&) = delete;
   Engine& operator=(const Engine&) = delete;
 
@@ -80,6 +81,7 @@ class Engine {
   } state_;
 
   Config config_{};
+  Pool pool_;
   std::vector<std::byte> data_;
   int next_position_ = 0;
 };

@@ -3,6 +3,7 @@
 import argparse
 import json
 import math
+import os
 from pathlib import Path
 import random
 import struct
@@ -236,6 +237,26 @@ class EngineTests(unittest.TestCase):
                             self.assertEqual(len(actual), len(expected))
                             for a, b in zip(actual, expected):
                                 self.assertAlmostEqual(a, b, delta=2e-5)
+
+
+    def test_threads_do_not_change_logits(self):
+        """Rows are split, never summed apart, so thread count cannot alter output."""
+        with tempfile.TemporaryDirectory() as directory:
+            model = Path(directory) / "threaded.bin"
+            for quantize in (False, True):
+                with self.subTest(quantize=quantize):
+                    reference_model(model, True, 2, tagged=True, quantize=quantize,
+                                    dim=64, hidden=72)
+                    tokens = [1, 19, 43, 7]
+                    outputs = []
+                    for threads in ("1", "2", "3"):
+                        environment = dict(os.environ, UNREMARKABLE_THREADS=threads)
+                        proc = subprocess.run([str(PROBE), str(model), *map(str, tokens)],
+                                              capture_output=True, timeout=60, env=environment)
+                        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+                        outputs.append(proc.stdout)
+                    self.assertEqual(outputs[0], outputs[1])
+                    self.assertEqual(outputs[0], outputs[2])
 
     def test_tagged_format_and_rope_base(self):
         """The tagged header carries its own RoPE base and drops the legacy tables."""

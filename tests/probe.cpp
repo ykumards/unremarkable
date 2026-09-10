@@ -1,5 +1,6 @@
 // Dumps logits for comparison with an independent Python forward pass.
 #include <algorithm>
+#include <cstdlib>
 #include <iomanip>
 #include <iostream>
 #include <stdexcept>
@@ -26,7 +27,10 @@ int main(int argc, char** argv) {
       std::cout << '\n';
       return 0;
     }
-    unremarkable::Engine engine(argv[1]);
+    // UNREMARKABLE_THREADS lets the tests run the same fixture on several
+    // threads and compare: the logits must not depend on how many there are.
+    const char* threads = std::getenv("UNREMARKABLE_THREADS");
+    unremarkable::Engine engine(argv[1], 0, threads ? std::stoi(threads) : 1);
     std::vector<float> first;
     std::cout << std::setprecision(9);
     for (int i = 2; i < argc; i++) {

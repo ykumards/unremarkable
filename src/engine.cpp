@@ -84,15 +84,29 @@ size_t Engine::weight_layout(bool shared, bool legacy) {
 
 void Engine::project(const float* input, const std::byte* base, int columns, int rows,
                      float* output) {
+  // Rows below this are not worth waking a second core for: the projections are
+  // issued a few hundred times per token, and the handoff costs more than the
+  // work saved on a short one.
+  constexpr int kParallelRows = 64;
   if (config_.quantization == Quantization::kQ8_0) {
     quantize_q8(input, columns, state_.xq.data());
-    matvec_q8(state_.xq.data(), reinterpret_cast<const Q8Block*>(base), columns, rows, output);
+    const Q8Block* weight = reinterpret_cast<const Q8Block*>(base);
+    const Q8Block* activations = state_.xq.data();
+    const size_t stride = q8_blocks(columns);
+    pool_.run(rows, kParallelRows, [&](int begin, int end) {
+      matvec_q8(activations, weight + static_cast<size_t>(begin) * stride, columns, end - begin,
+                output + begin);
+    });
   } else {
-    matvec(input, reinterpret_cast<const float*>(base), columns, rows, output);
+    const float* weight = reinterpret_cast<const float*>(base);
+    pool_.run(rows, kParallelRows, [&](int begin, int end) {
+      matvec(input, weight + static_cast<size_t>(begin) * columns, columns, end - begin,
+             output + begin);
+    });
   }
 }
 
-Engine::Engine(const std::string& checkpoint, int context) {
+Engine::Engine(const std::string& checkpoint, int context, int threads) : pool_(threads) {
   static_assert(std::endian::native == std::endian::little);
   static_assert(sizeof(float) == 4 && std::numeric_limits<float>::is_iec559);
   std::ifstream file(checkpoint, std::ios::binary | std::ios::ate);

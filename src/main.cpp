@@ -42,6 +42,7 @@ struct Options {
   int limit = 256;
   int context = 0;
   int seed = 1;
+  int threads = 1;
   float temperature = 0;
   float top_p = 0.9f;
 };
@@ -82,6 +83,8 @@ Options parse_options(int argc, char** argv) {
       options.system = value;
     } else if (flag == "-a") {
       options.opening = value;
+    } else if (flag == "-j") {
+      options.threads = positive_int(value);
     } else if (flag == "-n") {
       options.limit = positive_int(value);
     } else if (flag == "-c") {
@@ -225,7 +228,9 @@ void usage(const char* program) {
                "  -z PATH   tokenizer (default models/tokenizer.bin)\n"
                "  -i TEXT   prompt (default empty)\n"
                "  -a TEXT   open the reply with this text and continue it; chat\n"
-               "            templates only, and it is printed with the reply\n",
+               "            templates only, and it is printed with the reply\n"
+               "  -j N      worker threads for the projections (default 1). Output\n"
+               "            does not depend on N; rows are split, never summed apart\n",
                program);
 }
 
@@ -243,7 +248,7 @@ int main(int argc, char** argv) {
   try {
     const Options options = parse_options(argc, argv);
     double start = now();
-    unremarkable::Engine engine(argv[1], options.context);
+    unremarkable::Engine engine(argv[1], options.context, options.threads);
     double load_seconds = now() - start;
     unremarkable::Tokenizer tokenizer(options.tokenizer, engine.config().vocab_size);
     unremarkable::Sampler sampler(engine.config().vocab_size, options.temperature, options.top_p,
