@@ -1,11 +1,87 @@
 // Adapted from karpathy/llama2.c; see THIRD_PARTY.md and LICENSE.
 #include "kernels.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstring>
 
+#if defined(__ARM_NEON) && !defined(UNREMARKABLE_SCALAR)
+#include <arm_neon.h>
+#endif
+
 namespace unremarkable {
+namespace {
+
+// int8 products fit int16, and vpadal widens to int32 before eight can overflow.
+inline int32_t dot_group(const int8_t* a, const int8_t* b) {
+#if defined(__ARM_NEON) && !defined(UNREMARKABLE_SCALAR)
+  const int8x16_t a0 = vld1q_s8(a);
+  const int8x16_t a1 = vld1q_s8(a + 16);
+  const int8x16_t b0 = vld1q_s8(b);
+  const int8x16_t b1 = vld1q_s8(b + 16);
+  int32x4_t acc = vpadalq_s16(vdupq_n_s32(0), vmull_s8(vget_low_s8(a0), vget_low_s8(b0)));
+  acc = vpadalq_s16(acc, vmull_s8(vget_high_s8(a0), vget_high_s8(b0)));
+  acc = vpadalq_s16(acc, vmull_s8(vget_low_s8(a1), vget_low_s8(b1)));
+  acc = vpadalq_s16(acc, vmull_s8(vget_high_s8(a1), vget_high_s8(b1)));
+  const int32x2_t pair = vadd_s32(vget_low_s32(acc), vget_high_s32(acc));
+  return vget_lane_s32(vpadd_s32(pair, pair), 0);
+#else
+  int32_t sum = 0;
+  for (int i = 0; i < kQuantGroup; i++) {
+    sum += a[i] * b[i];
+  }
+  return sum;
+#endif
+}
+
+}  // namespace
+
+void quantize_q8(const float* input, int size, Q8Block* output) {
+  const int blocks = q8_blocks(size);
+  for (int b = 0; b < blocks; b++) {
+    const int base = b * kQuantGroup;
+    const int count = std::min(kQuantGroup, size - base);
+    float largest = 0;
+    for (int i = 0; i < count; i++) {
+      largest = std::fmax(largest, std::fabs(input[base + i]));
+    }
+    Q8Block& block = output[b];
+    block.scale = largest / 127.0f;
+    // A zero group would divide by zero; its values are already exactly zero.
+    const float inverse = largest > 0 ? 127.0f / largest : 0.0f;
+    for (int i = 0; i < count; i++) {
+      const long rounded = std::lround(input[base + i] * inverse);
+      block.values[i] = static_cast<int8_t>(std::clamp(rounded, -127L, 127L));
+    }
+    for (int i = count; i < kQuantGroup; i++) {
+      block.values[i] = 0;
+    }
+  }
+}
+
+void dequantize_q8(const Q8Block* input, int size, float* output) {
+  for (int i = 0; i < size; i++) {
+    const Q8Block& block = input[i / kQuantGroup];
+    output[i] = block.scale * block.values[i % kQuantGroup];
+  }
+}
+
+void matvec_q8(const Q8Block* input, const Q8Block* weight, int columns, int rows, float* output) {
+  const int blocks = q8_blocks(columns);
+  for (int i = 0; i < rows; i++) {
+    const Q8Block* row = weight + static_cast<size_t>(i) * blocks;
+    float sum = 0;
+    for (int b = 0; b < blocks; b++) {
+      // Prefetching, not width, is what this loop gains from. PLD never faults,
+      // so running past the last row is harmless.
+      __builtin_prefetch(reinterpret_cast<const char*>(row + b) + 256);
+      const int32_t dot = dot_group(row[b].values, input[b].values);
+      sum += static_cast<float>(dot) * (row[b].scale * input[b].scale);
+    }
+    output[i] = sum;
+  }
+}
 
 void rmsnorm(const float* input, const float* weight, int size, float* output) {
   float sum = 0;
@@ -39,9 +115,31 @@ void softmax_inplace(float* values, int size) {
 
 void matvec(const float* input, const float* weight, int columns, int rows, float* output) {
   for (int i = 0; i < rows; i++) {
+    const float* row = weight + static_cast<size_t>(i) * columns;
     float sum = 0;
-    for (int j = 0; j < columns; j++) {
-      sum += weight[static_cast<size_t>(i) * columns + j] * input[j];
+    int j = 0;
+#if defined(__ARM_NEON) && !defined(UNREMARKABLE_SCALAR)
+    // Four independent vector accumulators (16 partial sums) let successive
+    // operations overlap. Weights stay in their original row-major layout.
+    float32x4_t sums0 = vdupq_n_f32(0);
+    float32x4_t sums1 = vdupq_n_f32(0);
+    float32x4_t sums2 = vdupq_n_f32(0);
+    float32x4_t sums3 = vdupq_n_f32(0);
+    for (; j <= columns - 16; j += 16) {
+      sums0 = vaddq_f32(sums0, vmulq_f32(vld1q_f32(row + j), vld1q_f32(input + j)));
+      sums1 = vaddq_f32(sums1, vmulq_f32(vld1q_f32(row + j + 4), vld1q_f32(input + j + 4)));
+      sums2 = vaddq_f32(sums2, vmulq_f32(vld1q_f32(row + j + 8), vld1q_f32(input + j + 8)));
+      sums3 = vaddq_f32(sums3, vmulq_f32(vld1q_f32(row + j + 12), vld1q_f32(input + j + 12)));
+    }
+    float32x4_t sums = vaddq_f32(vaddq_f32(sums0, sums1), vaddq_f32(sums2, sums3));
+    for (; j <= columns - 4; j += 4) {
+      sums = vaddq_f32(sums, vmulq_f32(vld1q_f32(row + j), vld1q_f32(input + j)));
+    }
+    float32x2_t halves = vadd_f32(vget_low_f32(sums), vget_high_f32(sums));
+    sum = vget_lane_f32(vpadd_f32(halves, halves), 0);
+#endif
+    for (; j < columns; j++) {
+      sum += row[j] * input[j];
     }
     output[i] = sum;
   }

@@ -29,43 +29,67 @@ void read_exact(std::ifstream& file, void* output, size_t bytes) {
 }
 
 constexpr uint32_t kMagic = 0x4B524E55;  // "UNRK", absent from legacy checkpoints.
-constexpr int32_t kVersion = 1;
+constexpr int32_t kVersion = 1;          // FP32 payload.
+constexpr int32_t kVersionQuant = 2;     // Adds the quantization field.
 
 }  // namespace
 
 // First walk validates the layout without allocating; second walk binds views
 // into data_. Both use the original context stored in the checkpoint header.
+size_t Engine::row_bytes(int columns) const {
+  if (config_.quantization == Quantization::kQ8_0) {
+    return product(q8_blocks(columns), sizeof(Q8Block));
+  }
+  return product(columns, sizeof(float));
+}
+
 size_t Engine::weight_layout(bool shared, bool legacy) {
   size_t offset = 0;
   const size_t dim = config_.dim, layers = config_.n_layers;
   const size_t head = dim / config_.n_heads;
   const size_t kv = head * config_.n_kv_heads;
-  auto tensor = [&](size_t a, size_t b, size_t c = 1) -> const float* {
-    const size_t count = product(product(a, b), c);
-    constexpr size_t kMaximum = std::numeric_limits<ptrdiff_t>::max() / sizeof(float);
-    if (count > kMaximum || offset > kMaximum - count) {
+  constexpr size_t kMaximum = std::numeric_limits<ptrdiff_t>::max();
+  auto advance = [&](size_t bytes) -> const std::byte* {
+    if (bytes > kMaximum || offset > kMaximum - bytes) {
       throw std::runtime_error("checkpoint is too large");
     }
-    const float* view = data_.empty() ? nullptr : data_.data() + offset;
-    offset += count;
+    const std::byte* view = data_.empty() ? nullptr : data_.data() + offset;
+    offset += bytes;
     return view;
   };
-  weights_.token_embedding_table = tensor(config_.vocab_size, dim);
-  weights_.rms_att_weight = tensor(layers, dim);
-  weights_.wq = tensor(layers, dim, dim);
-  weights_.wk = tensor(layers, kv, dim);
-  weights_.wv = tensor(layers, kv, dim);
-  weights_.wo = tensor(layers, dim, dim);
-  weights_.rms_ffn_weight = tensor(layers, dim);
-  weights_.w1 = tensor(layers, config_.hidden_dim, dim);
-  weights_.w2 = tensor(layers, dim, config_.hidden_dim);
-  weights_.w3 = tensor(layers, config_.hidden_dim, dim);
-  weights_.rms_final_weight = tensor(dim, 1);
+  // Norm vectors stay FP32 in every format; matrices are laid out a row at a time.
+  auto norm = [&](size_t count) -> const float* {
+    return reinterpret_cast<const float*>(advance(product(count, sizeof(float))));
+  };
+  auto matrix = [&](size_t rows, size_t columns) -> const std::byte* {
+    return advance(product(rows, row_bytes(static_cast<int>(columns))));
+  };
+  weights_.token_embedding_table = matrix(config_.vocab_size, dim);
+  weights_.rms_att_weight = norm(product(layers, dim));
+  weights_.wq = matrix(product(layers, dim), dim);
+  weights_.wk = matrix(product(layers, kv), dim);
+  weights_.wv = matrix(product(layers, kv), dim);
+  weights_.wo = matrix(product(layers, dim), dim);
+  weights_.rms_ffn_weight = norm(product(layers, dim));
+  weights_.w1 = matrix(product(layers, config_.hidden_dim), dim);
+  weights_.w2 = matrix(product(layers, dim), config_.hidden_dim);
+  weights_.w3 = matrix(product(layers, config_.hidden_dim), dim);
+  weights_.rms_final_weight = norm(dim);
   if (legacy) {
-    tensor(config_.seq_len, head);  // Skip both unused legacy RoPE tables.
+    norm(product(config_.seq_len, head));  // Skip both unused legacy RoPE tables.
   }
-  weights_.wcls = shared ? weights_.token_embedding_table : tensor(config_.vocab_size, dim);
-  return product(offset, sizeof(float));
+  weights_.wcls = shared ? weights_.token_embedding_table : matrix(config_.vocab_size, dim);
+  return offset;
+}
+
+void Engine::project(const float* input, const std::byte* base, int columns, int rows,
+                     float* output) {
+  if (config_.quantization == Quantization::kQ8_0) {
+    quantize_q8(input, columns, state_.xq.data());
+    matvec_q8(state_.xq.data(), reinterpret_cast<const Q8Block*>(base), columns, rows, output);
+  } else {
+    matvec(input, reinterpret_cast<const float*>(base), columns, rows, output);
+  }
 }
 
 Engine::Engine(const std::string& checkpoint, int context) {
@@ -83,18 +107,18 @@ Engine::Engine(const std::string& checkpoint, int context) {
   // legacy llama2.c checkpoint starts straight into the seven header integers.
   file.seekg(0);
   uint32_t magic = 0;
+  int32_t version = 0;
   read_exact(file, &magic, sizeof(magic));
   const bool legacy = magic != kMagic;
   size_t header_bytes = 28;
   if (legacy) {
     file.seekg(0);
   } else {
-    int32_t version = 0;
     read_exact(file, &version, sizeof(version));
-    if (version != kVersion) {
+    if (version != kVersion && version != kVersionQuant) {
       throw std::runtime_error("unsupported checkpoint version");
     }
-    header_bytes = 40;
+    header_bytes = version == kVersionQuant ? 44 : 40;
     if (file_size < static_cast<std::streamoff>(header_bytes)) {
       throw std::runtime_error("checkpoint header is truncated");
     }
@@ -108,6 +132,15 @@ Engine::Engine(const std::string& checkpoint, int context) {
     if (!std::isfinite(config_.rope_theta) || config_.rope_theta <= 1.0f) {
       throw std::runtime_error("invalid RoPE base in checkpoint header");
     }
+  }
+  if (version == kVersionQuant) {
+    int32_t quantization = 0;
+    read_exact(file, &quantization, sizeof(quantization));
+    if (quantization != static_cast<int32_t>(Quantization::kFloat32) &&
+        quantization != static_cast<int32_t>(Quantization::kQ8_0)) {
+      throw std::runtime_error("unsupported quantization in checkpoint header");
+    }
+    config_.quantization = static_cast<Quantization>(quantization);
   }
   if (config_.vocab_size == std::numeric_limits<int32_t>::min()) {
     throw std::runtime_error("invalid vocabulary size");
@@ -127,7 +160,7 @@ Engine::Engine(const std::string& checkpoint, int context) {
   if (context < 0 || context > config_.seq_len) {
     throw std::runtime_error("requested context exceeds model context");
   }
-  data_.resize(bytes / sizeof(float));
+  data_.resize(bytes);
   read_exact(file, data_.data(), bytes);
   weight_layout(shared, legacy);
   if (context) {
@@ -143,6 +176,9 @@ Engine::Engine(const std::string& checkpoint, int context) {
   state_.hb.resize(config_.hidden_dim);
   state_.hb2.resize(config_.hidden_dim);
   state_.q.resize(config_.dim);
+  if (config_.quantization == Quantization::kQ8_0) {
+    state_.xq.resize(q8_blocks(std::max(config_.dim, config_.hidden_dim)));
+  }
   state_.att.resize(product(config_.n_heads, config_.seq_len));
   state_.logits.resize(config_.vocab_size);
   state_.key_cache.resize(cache);
@@ -174,8 +210,18 @@ std::span<float> Engine::forward(int token, int position) {
   const int head_size = dim / config.n_heads;
   const int kv_dim = head_size * config.n_kv_heads;
   float* residual = state.x.data();
+  // A quantized row carries its scales inline, so its stride is not the column count.
+  const size_t row_dim = row_bytes(dim);
+  const size_t row_hidden = row_bytes(hidden_dim);
 
-  embedding_lookup(weights.token_embedding_table, token, dim, residual);
+  if (config.quantization == Quantization::kQ8_0) {
+    dequantize_q8(reinterpret_cast<const Q8Block*>(weights.token_embedding_table) +
+                      static_cast<size_t>(token) * q8_blocks(dim),
+                  dim, residual);
+  } else {
+    embedding_lookup(reinterpret_cast<const float*>(weights.token_embedding_table), token, dim,
+                     residual);
+  }
 
   for (size_t layer = 0; layer < static_cast<size_t>(config.n_layers); layer++) {
     // Each layer owns a cache slice; projections write the current slot
@@ -188,30 +234,30 @@ std::span<float> Engine::forward(int token, int position) {
 
     // Normalize, project Q/K/V, apply RoPE, and attend to the cached prefix.
     rmsnorm(residual, weights.rms_att_weight + layer * dim, dim, state.xb.data());
-    matvec(state.xb.data(), weights.wq + layer * dim * dim, dim, dim, state.q.data());
-    matvec(state.xb.data(), weights.wk + layer * dim * kv_dim, dim, kv_dim, key);
-    matvec(state.xb.data(), weights.wv + layer * dim * kv_dim, dim, kv_dim, value);
+    project(state.xb.data(), weights.wq + layer * dim * row_dim, dim, dim, state.q.data());
+    project(state.xb.data(), weights.wk + layer * kv_dim * row_dim, dim, kv_dim, key);
+    project(state.xb.data(), weights.wv + layer * kv_dim * row_dim, dim, kv_dim, value);
     rope_inplace(position, head_size, dim, kv_dim, config.rope_theta, state.q.data(), key);
     causal_attention(state.q.data(), key_cache, value_cache, config.n_heads, config.n_kv_heads,
                      head_size, config.seq_len, position, state.att.data(), state.xb.data());
-    matvec(state.xb.data(), weights.wo + layer * dim * dim, dim, dim, state.xb2.data());
+    project(state.xb.data(), weights.wo + layer * dim * row_dim, dim, dim, state.xb2.data());
     add_inplace(state.xb2.data(), dim, residual);
 
     // Feed-forward: down(silu(gate(x)) * up(x)), then residual addition.
     rmsnorm(residual, weights.rms_ffn_weight + layer * dim, dim, state.xb.data());
-    matvec(state.xb.data(), weights.w1 + layer * dim * hidden_dim, dim, hidden_dim,
-           state.hb.data());
-    matvec(state.xb.data(), weights.w3 + layer * dim * hidden_dim, dim, hidden_dim,
-           state.hb2.data());
+    project(state.xb.data(), weights.w1 + layer * hidden_dim * row_dim, dim, hidden_dim,
+            state.hb.data());
+    project(state.xb.data(), weights.w3 + layer * hidden_dim * row_dim, dim, hidden_dim,
+            state.hb2.data());
     swiglu_inplace(state.hb2.data(), hidden_dim, state.hb.data());
-    matvec(state.hb.data(), weights.w2 + layer * dim * hidden_dim, hidden_dim, dim,
-           state.xb.data());
+    project(state.hb.data(), weights.w2 + layer * dim * row_hidden, hidden_dim, dim,
+            state.xb.data());
     add_inplace(state.xb.data(), dim, residual);
   }
 
   // Normalize the final residual stream and score every vocabulary token.
   rmsnorm(residual, weights.rms_final_weight, dim, residual);
-  matvec(residual, weights.wcls, dim, config.vocab_size, state.logits.data());
+  project(residual, weights.wcls, dim, config.vocab_size, state.logits.data());
   next_position_++;
   return state.logits;
 }
