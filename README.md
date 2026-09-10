@@ -1,11 +1,16 @@
-# unremarkable
+<h1 align="center">unremarkable</h1>
+
+<p align="center">
+  <img src="assets/mascot.webp" alt="Unremarkable mascot: an unimpressed orange cat" width="400">
+</p>
 
 A small C++23 LLM inference engine for experiments on the reMarkable 2.
 
 The baseline loads a legacy llama2.c FP32 checkpoint fully into RAM and runs a
 single-threaded dense Llama forward pass: RMSNorm, rotary attention, KV cache,
 SwiGLU, and vocabulary projection. It includes a BPE tokenizer and greedy or
-temperature/top-p sampling. Plain loops, with no hand-written SIMD or quantization.
+temperature/top-p sampling. ARM builds use a small NEON matrix-vector kernel;
+the other operations use plain loops. Weights remain FP32, with no quantization.
 
 Two model families work. TinyStories 15M continues a prompt into a story and is
 not instruction-tuned; SmolLM2-135M-Instruct answers questions using a ChatML
@@ -111,6 +116,10 @@ component that depends on it.
 
 ## Measurements
 
+See [tablet results](docs/performance.md) for the scalar baseline and NEON comparison.
+Define `UNREMARKABLE_SCALAR` when compiling to use the original scalar matvec.
+NEON uses four partial sums, so small FP32 rounding differences are expected.
+
 - `load_ms`: checkpoint validation, full read into RAM, and inference-buffer setup.
 - `prefill_ms`: forward passes for all prompt tokens, including BOS.
 - `ttft_ms`: tokenization through first generated token, excluding model/tokenizer
@@ -180,5 +189,5 @@ bounds, BOS/EOS, sampling, UTF-8 input, malformed files, and byte-level
 tokenization against identifiers from the reference tokenizer.
 
 The executable built by `make` targets the build machine. The reMarkable needs an
-ARMv7 Linux build with a compatible C++ toolchain/runtime. This baseline has not
-yet been tested on the tablet; desktop timings are not tablet benchmarks.
+ARMv7 Linux build with a compatible C++ toolchain/runtime. Both the scalar baseline
+and the NEON kernel have been tested on the tablet; desktop timings are separate.
