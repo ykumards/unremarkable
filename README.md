@@ -23,9 +23,9 @@ make models  # downloads TinyStories 15M (~62 MB with tokenizer)
 
 ## Ceiling
 
-SmolLM2-135M Q8: **5.88 tok/s**, about **33%** of the estimated memory ceiling.
+SmolLM2-135M Q8: **5.77 tok/s**, about **32%** of the estimated memory ceiling.
 
-![A right-facing tortoise at 5.88 tok/s, heading toward the estimated 17.9 tok/s ceiling](assets/tps-progress.svg)
+![A right-facing tortoise at 5.77 tok/s, heading toward the estimated 17.9 tok/s ceiling](assets/tps-progress.svg)
 
 We measured **2.708 GB/s** of sequential reads using both cores over a 144 MiB buffer,
 larger than the CPU cache. Each generated token reads roughly **151 MB** of Q8 weights,
@@ -39,7 +39,7 @@ thread coordination reduce achievable speed. [Measurements and assumptions](docs
 | NEON alone (slightly slower) | 1.03 |
 | NEON + prefetch | 1.74 |
 | Q8 quantization | 3.83 |
-| Q8 on both cores | **5.88** |
+| Q8 on both cores | **5.77** |
 
 ## Docs
 

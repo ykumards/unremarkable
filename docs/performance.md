@@ -87,8 +87,8 @@ or 9.4 on one. These use decimal GB and assume each token streams the weights
 once, with all bandwidth available to them. Compute, activations, KV-cache
 traffic, and synchronization are omitted.
 
-The recorded 5.88 tokens/s is about 33% of that estimate. Its implied weight
-traffic is 0.89 GB/s; this is calculated from token throughput, not measured
+The recorded 5.77 tokens/s is about 32% of that estimate. Its implied weight
+traffic is 0.87 GB/s; this is calculated from token throughput, not measured
 DRAM traffic. The gap suggests investigating arithmetic, memory access, and
 coordination costs, but does not prove an achievable 3x speedup. Likewise,
 inference scaling 1.51x versus streaming's 1.90x does not isolate synchronization
@@ -97,12 +97,14 @@ compute limits from memory stalls or scheduling overhead.
 
 ## Fixed workload
 
-- reMarkable 2, Cortex-A7, single-threaded, default `ondemand` governor.
+- reMarkable 2, Cortex-A7, default `ondemand` governor. Runs are single-threaded
+  unless the variant says otherwise; `benchmarks.csv` records the thread count.
 - SmolLM2-135M-Instruct; 513.134 MiB of FP32 weights or 144.415 MiB of Q8_0,
   plus 22.5 MiB of KV cache. The cache stays FP32 in both.
 - Prompt: `Tell me a short story about a lighthouse keeper who discovers a message in a bottle.`
 - No system prompt; greedy decoding, seed 1, context 512, maximum 256 new tokens.
-- 26 prompt tokens, 256 generated tokens, 255 timed decode steps; stop: token limit.
+- 26 prompt tokens; the 2026-09-09 rows generate 256 tokens and the 2026-09-10
+  rows 64, each stopping on the token limit.
 - TTFT excludes loading. Decode speed excludes prefill, the first generated token,
   printing, and terminal tokens. See the metric definitions below.
 - Codex Linux 5.8.203, firmware 3.28.0.172, kernel 5.4.70-v1.6.3-rm11x.

@@ -1,12 +1,16 @@
-date,device,model,variant,run,context,prompt_tokens,generated_tokens,decode_tokens,stop,decode_tok_s,ttft_ms,load_ms,peak_rss_mib,output_sha256,binary_sha256,note
-2026-09-09,reMarkable 2,SmolLM2-135M-Instruct FP32,scalar,1,512,26,256,255,limit,1.005,24206.598,2790.572,538.68,9e38ee09f0418495c57387d6c92612d9fe01ff0d234944a9a154eb01d5dc23af,374f424ed7d47f394a8b23eb21a54398f69b58a4b4b1da86a91f32f3a01d51eb,
-2026-09-09,reMarkable 2,SmolLM2-135M-Instruct FP32,scalar,2,512,26,256,255,limit,0.976,25636.902,2900.733,538.625,9e38ee09f0418495c57387d6c92612d9fe01ff0d234944a9a154eb01d5dc23af,374f424ed7d47f394a8b23eb21a54398f69b58a4b4b1da86a91f32f3a01d51eb,
-2026-09-09,reMarkable 2,SmolLM2-135M-Instruct FP32,neon-4-lane,1,512,26,256,255,limit,1.228,19728.738,2736.454,539.582,9e38ee09f0418495c57387d6c92612d9fe01ff0d234944a9a154eb01d5dc23af,786eb90d21fef6398cbf422151f577996042161920582c0b48734684a66f749fconfounded: measured on a different boot from the scalar rows
-2026-09-10,reMarkable 2,SmolLM2-135M-Instruct FP32,fp32-scalar,1,512,26,64,63,limit,1.082,23560.263,2816.943,538.414,,,controlled: one boot, both orderings
-2026-09-10,reMarkable 2,SmolLM2-135M-Instruct FP32,fp32-neon-4-lane,1,512,26,64,63,limit,1.024,25268.363,2758.079,538.594,,,controlled: one boot, both orderings
-2026-09-10,reMarkable 2,SmolLM2-135M-Instruct FP32,fp32-neon-4-lane,2,512,26,64,63,limit,1.031,24846.684,2799.172,538.523,,,controlled: one boot, both orderings
-2026-09-10,reMarkable 2,SmolLM2-135M-Instruct FP32,fp32-neon-prefetch,1,512,26,64,63,limit,1.751,14666.708,2762.628,538.676,,,controlled: one boot, both orderings
-2026-09-10,reMarkable 2,SmolLM2-135M-Instruct FP32,fp32-neon-prefetch,2,512,26,64,63,limit,1.732,14431.267,2759.840,538.527,,,controlled: one boot, both orderings
-2026-09-10,reMarkable 2,SmolLM2-135M-Instruct Q8_0,q8_0,1,512,26,64,63,limit,3.834,6351.586,566.297,170.883,,,
-2026-09-10,reMarkable 2,SmolLM2-135M-Instruct Q8_0,q8_0,2,512,26,64,63,limit,3.807,6998.438,599.608,170.828,,,
-2026-09-10,reMarkable 2,SmolLM2-135M-Instruct Q8_0,q8_0,3,512,26,64,63,limit,3.837,6352.980,566.247,170.887,,,
+date,device,model,variant,threads,run,context,prompt_tokens,generated_tokens,decode_tokens,stop,decode_tok_s,ttft_ms,load_ms,peak_rss_mib,output_sha256,binary_sha256,note
+2026-09-09,reMarkable 2,SmolLM2-135M-Instruct FP32,scalar,1,1,512,26,256,255,limit,1.005,24206.598,2790.572,538.68,9e38ee09f0418495c57387d6c92612d9fe01ff0d234944a9a154eb01d5dc23af,374f424ed7d47f394a8b23eb21a54398f69b58a4b4b1da86a91f32f3a01d51eb,
+2026-09-09,reMarkable 2,SmolLM2-135M-Instruct FP32,scalar,1,2,512,26,256,255,limit,0.976,25636.902,2900.733,538.625,9e38ee09f0418495c57387d6c92612d9fe01ff0d234944a9a154eb01d5dc23af,374f424ed7d47f394a8b23eb21a54398f69b58a4b4b1da86a91f32f3a01d51eb,
+2026-09-09,reMarkable 2,SmolLM2-135M-Instruct FP32,neon-4-lane,1,1,512,26,256,255,limit,1.228,19728.738,2736.454,539.582,9e38ee09f0418495c57387d6c92612d9fe01ff0d234944a9a154eb01d5dc23af,786eb90d21fef6398cbf422151f577996042161920582c0b48734684a66f749fconfounded: measured on a different boot from the scalar rows
+2026-09-10,reMarkable 2,SmolLM2-135M-Instruct FP32,fp32-scalar,1,1,512,26,64,63,limit,1.082,23560.263,2816.943,538.414,,,controlled: one boot, both orderings
+2026-09-10,reMarkable 2,SmolLM2-135M-Instruct FP32,fp32-neon-4-lane,1,1,512,26,64,63,limit,1.024,25268.363,2758.079,538.594,,,controlled: one boot, both orderings
+2026-09-10,reMarkable 2,SmolLM2-135M-Instruct FP32,fp32-neon-4-lane,1,2,512,26,64,63,limit,1.031,24846.684,2799.172,538.523,,,controlled: one boot, both orderings
+2026-09-10,reMarkable 2,SmolLM2-135M-Instruct FP32,fp32-neon-prefetch,1,1,512,26,64,63,limit,1.751,14666.708,2762.628,538.676,,,controlled: one boot, both orderings
+2026-09-10,reMarkable 2,SmolLM2-135M-Instruct FP32,fp32-neon-prefetch,1,2,512,26,64,63,limit,1.732,14431.267,2759.840,538.527,,,controlled: one boot, both orderings
+2026-09-10,reMarkable 2,SmolLM2-135M-Instruct Q8_0,q8_0,1,1,512,26,64,63,limit,3.834,6351.586,566.297,170.883,,,
+2026-09-10,reMarkable 2,SmolLM2-135M-Instruct Q8_0,q8_0,1,2,512,26,64,63,limit,3.807,6998.438,599.608,170.828,,,
+2026-09-10,reMarkable 2,SmolLM2-135M-Instruct Q8_0,q8_0,1,3,512,26,64,63,limit,3.837,6352.980,566.247,170.887,,,
+2026-09-10,reMarkable 2,SmolLM2-135M-Instruct Q8_0,q8_0,1,4,512,26,64,63,limit,3.827,6360.656,557.720,170.805,,,
+2026-09-10,reMarkable 2,SmolLM2-135M-Instruct Q8_0,q8_0,1,5,512,26,64,63,limit,3.825,6370.846,576.388,170.895,,,
+2026-09-10,reMarkable 2,SmolLM2-135M-Instruct Q8_0,q8_0-2-threads,2,1,512,26,64,63,limit,5.762,3985.802,560.541,170.840,,,
+2026-09-10,reMarkable 2,SmolLM2-135M-Instruct Q8_0,q8_0-2-threads,2,2,512,26,64,63,limit,5.785,3980.418,555.541,170.797,,,
