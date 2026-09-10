@@ -26,6 +26,22 @@ make chat-model  # downloads ~270 MB and converts it to a 538 MB FP32 checkpoint
   -n 200
 ```
 
+Or quantized, which is what the tablet runs:
+
+```sh
+make chat-model-q8  # the same weights as Q8_0: 144 MiB instead of 513 MiB
+
+./build/unremarkable models/smollm2-135m-q8.bin \
+  -z models/smollm2-135m-q8.tok \
+  -c 512 \
+  -i "What is the capital of France?" \
+  -n 200
+```
+
+Quantizing requires numpy; every other path, inference included, needs only the
+standard library. The tokenizer is identical either way. Both checkpoints run on
+the same engine, which reads the format from the header.
+
 A vocabulary carrying `<|im_start|>` and `<|im_end|>` selects the ChatML template
 automatically: the prompt is wrapped as a user turn, the reply stops at the end of
 the turn, and only the reply is printed. `-y` replaces the system prompt. Prompt

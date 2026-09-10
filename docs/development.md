@@ -28,6 +28,18 @@ produced by the exporter, rather than GGUF. Tagged checkpoints include the RoPE
 base and omit the legacy format's unused RoPE tables.
 [Published measurements](performance.md) specify the model and precision tested.
 
+`UNRK` version 2 adds a quantization field. Version 1 stays FP32, so existing
+checkpoints and the pinned fixtures keep working. Under `q8_0` the matrices hold
+thirty-two int8 values per FP32 scale, the scale stored ahead of its values so a
+row reads as one sequential stream; norm vectors stay FP32 in either format. A
+row therefore occupies `ceil(columns / 32) * 36` bytes rather than `columns * 4`,
+which is why the weight layout is walked in bytes rather than floats.
+
+Products accumulate in int32 within a group and in FP32 across groups. Integer
+accumulation is exact, so the quantized kernel produces bit-identical results on
+every target, and unlike the FP32 path it depends on neither `-ffp-contract=off`
+nor NEON's flush-to-zero behavior.
+
 The exporter reorders query and key rows because Hugging Face rotates halves of
 each attention head while this engine rotates adjacent pairs.
 

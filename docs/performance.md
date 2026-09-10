@@ -5,23 +5,64 @@ plotting progress. Append new variants and runs; retain the individual numbers,
 output hashes, and executable hashes. Exclude warmups and failed attempts.
 Raw output and JSON metrics remain under ignored `results/`.
 
-## First optimization: NEON matvec (2026-09-09)
+## NEON matvec, corrected (2026-09-10)
 
-| Implementation | Runs | Decode tokens/s (mean ± sample std) | Mean TTFT | Mean peak RSS |
+An earlier entry here reported the NEON kernel as about 24% faster than scalar.
+That comparison was confounded: the two builds ran on different boots, and this
+device's throughput varies more between boots than the kernel change was worth.
+Measured back to back on one boot, in both orderings, the four-partial-sum kernel
+is slightly *slower* than scalar, and a prefetch hint is what actually pays.
+
+| matvec, isolated, 576x8192 | GB/s | vs scalar |
+| --- | ---: | ---: |
+| scalar | 0.620 | 1.00x |
+| NEON, four partial sums | 0.585 | 0.94x |
+| NEON plus `__builtin_prefetch` | 1.022 | 1.65x |
+
+Six runs per variant, interleaved in both directions, spread under 1%. A
+streaming read of the same buffer reaches 1.40 GB/s, so the scalar kernel was
+already at 44% of what the core can pull, and the loop waits on cache misses
+rather than on arithmetic. Widening it alone therefore buys nothing; the extra
+instructions have nothing to do while a miss is outstanding. Interleaving several
+rows is worse still, at 0.35 GB/s, because this core sustains too few outstanding
+misses to serve more than one stream. Prefetch distance is insensitive between
+192 and 1024 bytes.
+
+The prefetch hint is not applied to the FP32 kernel in this branch; the quantized
+kernel carries it.
+
+## Q8_0 quantization (2026-09-10)
+
+| Engine | Runs | Decode tokens/s | Mean TTFT | Peak RSS |
 | --- | ---: | ---: | ---: | ---: |
-| Scalar | 2 | 0.991 ± 0.021 | 24.92 s | 538.65 MiB |
-| NEON, four partial sums | 1 | 1.228 | 19.73 s | 539.58 MiB |
+| FP32, scalar | 1 | 1.082 | 23.56 s | 538.41 MiB |
+| FP32, NEON four partial sums | 2 | 1.028 | 25.06 s | 538.59 MiB |
+| FP32, NEON plus prefetch | 2 | 1.742 | 14.55 s | 538.68 MiB |
+| **Q8_0** | 3 | **3.826 ± 0.017** | **6.57 s** | **170.87 MiB** |
 
-The NEON run was about 24% faster than the earlier scalar mean. All runs
-produced the same 256-token output, byte-for-byte. This is an initial comparison:
-NEON has only one measured run, after a reboot with the stock UI; the scalar runs
-preceded the reboot. It is not a controlled repeatability or stability result.
-The interrupted scalar attempt is excluded; its reset cause remains unknown.
+All runs produced byte-identical output within their variant. Q8_0 is 3.54x the
+scalar baseline on decode and 3.6x smaller resident.
+
+Memory is the more useful number. At 538 MiB the engine was killed by the OOM
+reaper on a device with 1003 MiB usable and no swap; that, not an unexplained
+reset, is what ended the interrupted baseline below. At 171 MiB the failure mode
+is gone.
+
+Quantization also made the tablet usable while generating. Q8_0 moves about
+580 MB/s of weight traffic against the FP32 prefetch kernel's 940 MB/s, so it is
+2.2x faster while taking 38% less of the memory bandwidth the UI shares. Under
+FP32 with prefetch an ssh connection could not complete its banner exchange;
+under Q8_0 a round trip takes 490-670 ms against a 348-415 ms idle baseline.
+
+Accuracy against the FP32 checkpoint, over 11 positions of 49152 logits: mean
+absolute error 0.29 against a mean logit range of 28.9, worst 1.73, top-1
+agreement 10 of 11, top-5 overlap 53 of 55.
 
 ## Fixed workload
 
 - reMarkable 2, Cortex-A7, single-threaded, default `ondemand` governor.
-- SmolLM2-135M-Instruct, FP32; 513.134 MiB weights and 22.5 MiB KV cache.
+- SmolLM2-135M-Instruct; 513.134 MiB of FP32 weights or 144.415 MiB of Q8_0,
+  plus 22.5 MiB of KV cache. The cache stays FP32 in both.
 - Prompt: `Tell me a short story about a lighthouse keeper who discovers a message in a bottle.`
 - No system prompt; greedy decoding, seed 1, context 512, maximum 256 new tokens.
 - 26 prompt tokens, 256 generated tokens, 255 timed decode steps; stop: token limit.
@@ -31,7 +72,7 @@ The interrupted scalar attempt is excluded; its reset cause remains unknown.
 - GCC 13.3.0, `-O2 -march=armv7-a -mtune=cortex-a7 -mfpu=neon-vfpv4
   -mfloat-abi=hard -ffp-contract=off -static-libstdc++ -static-libgcc`.
 
-`make tablet` builds the NEON engine. Define `UNREMARKABLE_SCALAR` at compile time
+`make tablet` builds the engine. Define `UNREMARKABLE_SCALAR` at compile time
 for the scalar path. The comparison executable lives in the tablet's
 `/home/root/unremarkable/benchmarks/`; the installed UI executable was not replaced.
 
