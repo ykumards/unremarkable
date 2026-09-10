@@ -38,6 +38,7 @@ struct Options {
   std::string tokenizer = "models/tokenizer.bin";
   std::string prompt;
   std::string system = "You are a helpful AI assistant named SmolLM, trained by Hugging Face";
+  std::string opening;
   int limit = 256;
   int context = 0;
   int seed = 1;
@@ -79,6 +80,8 @@ Options parse_options(int argc, char** argv) {
       options.prompt = value;
     } else if (flag == "-y") {
       options.system = value;
+    } else if (flag == "-a") {
+      options.opening = value;
     } else if (flag == "-n") {
       options.limit = positive_int(value);
     } else if (flag == "-c") {
@@ -122,6 +125,11 @@ void generate(unremarkable::Engine& engine, const unremarkable::Tokenizer& token
     turn("user", options.prompt);
     tokens.push_back(im_start);
     tokenizer.encode_into("assistant\n", tokens);
+    // Opening the reply for the model leaves it only the continuation to write,
+    // which a small model does far more reliably than starting from nothing.
+    if (!options.opening.empty()) {
+      tokenizer.encode_into(options.opening, tokens);
+    }
   } else {
     tokenizer.encode_into(options.prompt, tokens);
   }
@@ -131,6 +139,9 @@ void generate(unremarkable::Engine& engine, const unremarkable::Tokenizer& token
   }
   if (!chat) {
     print_piece(options.prompt);
+    std::cout.flush();
+  } else if (!options.opening.empty()) {
+    print_piece(options.opening);
     std::cout.flush();
   }
 
@@ -212,7 +223,9 @@ void usage(const char* program) {
                "0.9)\n"
                "  -s SEED   positive random seed (default 1)\n"
                "  -z PATH   tokenizer (default models/tokenizer.bin)\n"
-               "  -i TEXT   prompt (default empty)\n",
+               "  -i TEXT   prompt (default empty)\n"
+               "  -a TEXT   open the reply with this text and continue it; chat\n"
+               "            templates only, and it is printed with the reply\n",
                program);
 }
 
