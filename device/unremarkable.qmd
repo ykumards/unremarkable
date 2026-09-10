@@ -41,6 +41,15 @@ SLOT unremarkableButton
                 return total;
             }
 
+                function toSentence(text) {
+                    // Generation stops on the token limit, which lands mid-sentence
+                    // more often than not. Show only what finished.
+                    if (!text) return "";
+                    var cut = Math.max(text.lastIndexOf("."), text.lastIndexOf("!"),
+                                       text.lastIndexOf("?"));
+                    return cut >= 0 ? text.substring(0, cut + 1) : text;
+                }
+
                 function firstStanza(raw) {
                     if (!raw) return "";
                     // The model sometimes prefixes a lead-in: a bare number, or a line
@@ -144,8 +153,24 @@ SLOT unremarkableButton
                     border.width: 3
                 }
 
-                onOpened: console.log("[unremarkable] opened in " + parent.width
-                                      + "x" + parent.height)
+                onOpened: {
+                    // state/out.txt still holds the last run, and showing it makes a
+                    // freshly opened panel look like it has already answered.
+                    unremarkableButton.outText = "";
+                    unremarkableButton.meta = null;
+                    unremarkableButton.runStatus = "idle";
+                    // Unless one is genuinely still going, in which case pick it up
+                    // again rather than offering a button that ask.sh will refuse.
+                    unremarkableButton.readFile("/home/root/unremarkable/state/status",
+                        function(status) {
+                            if (status === "running") {
+                                unremarkableButton.runStatus = "running";
+                                pollTimer.start();
+                            }
+                        });
+                    console.log("[unremarkable] opened in " + parent.width
+                                + "x" + parent.height);
+                }
 
                 contentItem: Item {
                     Column {
@@ -206,10 +231,16 @@ SLOT unremarkableButton
 
                         Text {
                             width: 872
+                            // While decoding, show the text arriving; once it has
+                            // stopped, drop the unfinished tail.
                             text: unremarkableButton.outText === ""
                                   ? "\u00b7 \u00b7 \u00b7"
-                                  : unremarkableButton.firstStanza(
-                                        unremarkableButton.outText)
+                                  : unremarkableButton.runStatus === "running"
+                                    ? unremarkableButton.firstStanza(
+                                          unremarkableButton.outText)
+                                    : unremarkableButton.toSentence(
+                                          unremarkableButton.firstStanza(
+                                              unremarkableButton.outText))
                             font.family: "EB Garamond"
                             font.pixelSize: 40
                             color: "#000000"
@@ -257,6 +288,11 @@ SLOT unremarkableButton
                 onClosed: {
                     pollTimer.stop();
                     unremarkableButton.selected = false;
+                    // Cleared here as well as on open: whichever signal arrives, the
+                    // panel is never holding the previous run's story.
+                    unremarkableButton.outText = "";
+                    unremarkableButton.meta = null;
+                    unremarkableButton.runStatus = "idle";
                 }
             }
         }

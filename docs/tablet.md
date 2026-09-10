@@ -27,7 +27,7 @@ against the reference fixture. See the [Makefile](../Makefile) for exact flags.
 | --- | --- |
 | [ask.sh](../device/ask.sh) | Runs a preset or free-text subject, streaming into `state/` |
 | [ask-bg.sh](../device/ask-bg.sh) | Runs inference in the background |
-| [unremarkable.qmd](../device/unremarkable.qmd) | Quick Settings panel with presets |
+| [unremarkable.qmd](../device/unremarkable.qmd) | Quick Settings panel: one button, a story on a random subject |
 | [unremarkable-selection.qmd](../device/unremarkable-selection.qmd) | Generates a poem from a handwriting selection |
 
 The `.qmd` files use [qmldiff](https://github.com/asivery/qmldiff) through
