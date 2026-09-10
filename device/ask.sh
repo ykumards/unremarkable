@@ -5,7 +5,7 @@ set -u
 
 DIR=/home/root/unremarkable
 STATE="$DIR/state"
-MODEL="$DIR/models/smollm2-135m.bin"
+MODEL="$DIR/models/smollm2-135m-q8.bin"
 TOKENIZER="$DIR/models/smollm2-135m.tok"
 LOCK="$STATE/lock"
 LIMIT="${2:-80}"
@@ -18,10 +18,29 @@ SEED=$(( ($(date +%s) + $$) % 2147483647 ))
 [ "$SEED" -lt 1 ] && SEED=1
 
 case "${1:-}" in
-  poem)    PROMPT="Write a short poem about winter." ;;
-  journal) PROMPT="Give me one thoughtful journal prompt for today." ;;
-  story)   PROMPT="Tell me a very short story." ;;
-  idea)    PROMPT="Give me one small creative idea to try today." ;;
+  # Subjects curated by measurement: naming a real product pulled the model into
+  # marketing prose, and some subjects made it write about them instead of from them.
+  poem|story)
+    SUBJECTS="a tiny processor thinking
+silicon and electricity
+transistors switching in the dark
+electrons racing through copper
+an old chip in a quiet machine
+the hum of a circuit board
+a clock signal keeping time
+a cache remembering what it saw"
+    COUNT=$(printf '%s\n' "$SUBJECTS" | wc -l)
+    PICK=$(( SEED % COUNT + 1 ))
+    SUBJECT=$(printf '%s\n' "$SUBJECTS" | sed -n "${PICK}p")
+    # Over 64 runs, stories came out well formed 98% of the time against 80% for
+    # poems: this model is trained heavily on synthetic stories. A system prompt
+    # makes both worse, since it is instruction tuned without one.
+    if [ "$1" = "story" ]; then
+      PROMPT="Tell me a short story about $SUBJECT."
+    else
+      PROMPT="Write a short poem about $SUBJECT."
+    fi
+    ;;
   about)
     # Subject comes from a selection on the page, so it is arbitrary text.
     SUBJECT=$(printf '%s' "${2:-}" | tr -d '\000' | cut -c1-200)
@@ -29,7 +48,7 @@ case "${1:-}" in
     PROMPT="Write a short poem about $SUBJECT."
     LIMIT="${3:-80}"
     ;;
-  *) echo "usage: ask.sh {poem|journal|story|idea} [max_tokens]" >&2
+  *) echo "usage: ask.sh {story|poem} [max_tokens]" >&2
      echo "       ask.sh about \"<subject>\" [max_tokens]" >&2; exit 2 ;;
 esac
 
@@ -39,8 +58,8 @@ if [ -d "$LOCK" ] && ! pidof unremarkable >/dev/null 2>&1; then
     rmdir "$LOCK" 2>/dev/null
 fi
 
-# One generation at a time: the model needs ~540 MiB of the ~760 MiB available,
-# so a second concurrent run would be killed by the OOM reaper.
+# One generation at a time. At 171 MiB memory is no longer the reason it was at
+# 540 MiB; the two Cortex-A7 cores are.
 if ! mkdir "$LOCK" 2>/dev/null; then
   echo "A generation is already running." >&2
   exit 1

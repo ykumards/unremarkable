@@ -92,13 +92,29 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
 
             function haikuPoem(raw) {
                 if (!raw) return "";
-                var text = raw;
-                var split = text.indexOf(String.fromCharCode(10, 10));
-                if (split >= 0) text = text.substring(0, split);
-                text = stripQuotes(text.trim());
-                var lines = text.split(String.fromCharCode(10));
-                if (lines.length > 6) lines = lines.slice(0, 6);
-                return lines.join(String.fromCharCode(10));
+                // The model sometimes prefixes a lead-in: a bare number, or a line
+                // ending in a colon. Skip those; the answer is the next block.
+                var newline = String.fromCharCode(10);
+                var raw_blocks = raw.split(newline + newline);
+                var blocks = [];
+                for (var i = 0; i < raw_blocks.length; i++) {
+                    var trimmed = stripQuotes(raw_blocks[i].trim());
+                    if (trimmed.length > 0) blocks.push(trimmed);
+                }
+                var chosen = "";
+                for (var j = 0; j < blocks.length; j++) {
+                    var block = blocks[j];
+                    var single = block.split(newline).length === 1;
+                    var leadIn = single && (block.length < 25
+                                            || block.charAt(block.length - 1) === ":");
+                    if (leadIn && j < blocks.length - 1) continue;
+                    chosen = block;
+                    break;
+                }
+                if (chosen.length === 0 && blocks.length > 0) chosen = blocks[0];
+                var lines = chosen.split(newline);
+                if (lines.length > 8) lines = lines.slice(0, 8);
+                return lines.join(newline);
             }
 
             function haikuRead(path, cb) {
@@ -221,9 +237,9 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
                         Rectangle { width: 872; height: 1; color: "#000000" }
 
                         Text {
-                            text: "SmolLM2-135M-Instruct \u00b7 fp32 \u00b7 armv7l @ 1.2GHz"
+                            text: "SmolLM2-135M-Instruct \u00b7 q8_0 \u00b7 armv7l @ 1.2GHz"
                             font.family: "Noto Sans Mono"
-                            font.pixelSize: 19
+                            font.pixelSize: 24
                             color: "#000000"
                         }
                         Text {
@@ -234,9 +250,9 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
                                     + " tok  \u00b7  " + Math.round(root.haikuMeta.peak_rss_mib)
                                     + " MiB rss"
                                   : "generating \u00b7 " + root.wordCount(root.haikuText)
-                                    + " words \u00b7 ~1 tok/s"
+                                    + " words \u00b7 ~4 tok/s"
                             font.family: "Noto Sans Mono"
-                            font.pixelSize: 19
+                            font.pixelSize: 24
                             color: "#000000"
                         }
                     }

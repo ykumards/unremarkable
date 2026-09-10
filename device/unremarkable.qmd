@@ -41,16 +41,32 @@ SLOT unremarkableButton
                 return total;
             }
 
-            function firstStanza(raw) {
-                if (!raw) return "";
-                var text = raw;
-                var split = text.indexOf(String.fromCharCode(10, 10));
-                if (split >= 0) text = text.substring(0, split);
-                text = stripQuotes(text.trim());
-                var lines = text.split(String.fromCharCode(10));
-                if (lines.length > 10) lines = lines.slice(0, 10);
-                return lines.join(String.fromCharCode(10));
-            }
+                function firstStanza(raw) {
+                    if (!raw) return "";
+                    // The model sometimes prefixes a lead-in: a bare number, or a line
+                    // ending in a colon. Skip those; the answer is the next block.
+                    var newline = String.fromCharCode(10);
+                    var raw_blocks = raw.split(newline + newline);
+                    var blocks = [];
+                    for (var i = 0; i < raw_blocks.length; i++) {
+                        var trimmed = stripQuotes(raw_blocks[i].trim());
+                        if (trimmed.length > 0) blocks.push(trimmed);
+                    }
+                    var chosen = "";
+                    for (var j = 0; j < blocks.length; j++) {
+                        var block = blocks[j];
+                        var single = block.split(newline).length === 1;
+                        var leadIn = single && (block.length < 25
+                                                || block.charAt(block.length - 1) === ":");
+                        if (leadIn && j < blocks.length - 1) continue;
+                        chosen = block;
+                        break;
+                    }
+                    if (chosen.length === 0 && blocks.length > 0) chosen = blocks[0];
+                    var lines = chosen.split(newline);
+                    if (lines.length > 10) lines = lines.slice(0, 10);
+                    return lines.join(newline);
+                }
 
             function readFile(path, cb) {
                 var xhr = new XMLHttpRequest();
@@ -139,6 +155,8 @@ SLOT unremarkableButton
 
                         Text {
                             text: "Unremarkable"
+                            width: 872
+                            horizontalAlignment: Text.AlignHCenter
                             font.family: "EB Garamond"
                             font.pixelSize: 52
                             color: "#000000"
@@ -147,7 +165,9 @@ SLOT unremarkableButton
                             text: unremarkableButton.runStatus === "running"
                                   ? "Generating a " + unremarkableButton.preset
                                     + "\u2026"
-                                  : "a small language model, thinking on this tablet"
+                                  : "running a local LLM on absurd hardware"
+                            width: 872
+                            horizontalAlignment: Text.AlignHCenter
                             font.family: "EB Garamond"
                             font.italic: true
                             font.pixelSize: 28
@@ -159,29 +179,26 @@ SLOT unremarkableButton
                         Rectangle { width: 872; height: 2; color: "#000000" }
                         Item { width: 1; height: 40 }
 
-                        Grid {
-                            columns: 2
-                            spacing: 20
-                            Repeater {
-                                model: [["poem", "Poem"], ["journal", "Journal"],
-                                        ["story", "Story"], ["idea", "Idea"]]
-                                Rectangle {
-                                    width: 426; height: 96
-                                    color: "#ffffff"
-                                    border.color: "#000000"
-                                    border.width: 2
-                                    Text {
-                                        anchors.centerIn: parent
-                                        text: modelData[1]
-                                        font.family: "EB Garamond"
-                                        font.pixelSize: 36
-                                        color: "#000000"
-                                    }
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        onClicked: unremarkableButton.ask(modelData[0])
-                                    }
-                                }
+                        // One action; the story preset chooses its own subject, so
+                        // every press writes a different story.
+                        Rectangle {
+                            width: 872; height: 96
+                            color: "#ffffff"
+                            border.color: "#000000"
+                            border.width: 2
+                            Text {
+                                anchors.centerIn: parent
+                                text: unremarkableButton.runStatus === "running"
+                                      ? "Writing\u2026"
+                                      : "Write a story"
+                                font.family: "EB Garamond"
+                                font.pixelSize: 36
+                                color: "#000000"
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                enabled: unremarkableButton.runStatus !== "running"
+                                onClicked: unremarkableButton.ask("story")
                             }
                         }
 
@@ -213,10 +230,10 @@ SLOT unremarkableButton
 
                         Rectangle { width: 872; height: 1; color: "#000000" }
                         Text {
-                            text: "SmolLM2-135M-Instruct \u00b7 135M params \u00b7 fp32 \u00b7 "
+                            text: "SmolLM2-135M-Instruct \u00b7 135M params \u00b7 q8_0 \u00b7 "
                                   + "49152 vocab"
                             font.family: "Noto Sans Mono"
-                            font.pixelSize: 19
+                            font.pixelSize: 24
                             color: "#000000"
                         }
                         Text {
@@ -229,9 +246,9 @@ SLOT unremarkableButton
                                   : unremarkableButton.runStatus === "running"
                                     ? "generating \u00b7 " + unremarkableButton.wordCount(
                                         unremarkableButton.outText) + " words"
-                                    : "idle \u00b7 513 MiB weights + 22 MiB kv cache"
+                                    : "idle \u00b7 144 MiB weights + 22 MiB kv cache"
                             font.family: "Noto Sans Mono"
-                            font.pixelSize: 19
+                            font.pixelSize: 24
                             color: "#000000"
                         }
                     }
