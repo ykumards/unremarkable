@@ -60,8 +60,8 @@ agreement 10 of 11, top-5 overlap 53 of 55.
 
 ## Memory roofline (2026-09-10)
 
-Sequential reads over a 144 MiB working set, the same NEON loop with a prefetch
-hint used for the kernel measurements:
+Sequential reads over a 144 MiB working set, eight repeats, using the same NEON
+loop with a prefetch hint used for the kernel measurements:
 
 | Threads | GB/s | vs one core |
 | --- | ---: | ---: |
@@ -70,20 +70,30 @@ hint used for the kernel measurements:
 | 3 | 2.643 | 1.86x |
 | 4 | 2.630 | 1.85x |
 
-One core does not saturate the memory controller. Two scale almost perfectly and
-then stop: three and four threads on two cores are slightly slower than two,
-which is what a controller limit rather than a core limit looks like. An earlier
-version of this file treated the single-core 1.40 GB/s as a device ceiling. It
-is not one, and neither is NXP's LPDDR3-1066 figure of 4.26 GB/s on a 32-bit
-bus, which is the bus rather than anything sustainable.
+Two cores deliver 1.90x the single-core throughput. Three and four threads add
+no cores, so their slightly lower throughput does not establish that the DRAM
+controller is saturated. Use 2.708 GB/s as the measured two-core streaming rate
+for this loop and device state, not an absolute hardware limit.
 
-Dividing by the 151 MB of weights a token reads gives the useful roofline:
-**17.9 tokens per second** on two cores, 9.4 on one. Decode currently reaches
-5.88, which is 33% of the two-core roofline, so this engine is bound by
-arithmetic with roughly threefold headroom before memory becomes the limit. That
-also explains why threading returned 1.51x where a pure streaming read returns
-1.90x: the shortfall is the per-projection handoff and the sequential remainder,
-not bandwidth.
+The earlier single-core 1.40 GB/s figure understates the available aggregate
+bandwidth. NXP's LPDDR3-1066 specification gives a theoretical 4.264 GB/s at
+32 bits (`1066 million transfers/s × 4 bytes/transfer`), not measured tablet
+throughput or confirmation of its configured bus width and clock.
+See the [NXP datasheet](https://www.nxp.com/docs/en/data-sheet/IMX7DCEC.pdf).
+
+Dividing by approximately 151 MB of Q8 weights read per token, including scales,
+gives a memory-only estimate: **2.708 / 0.151 = 17.9 tokens/s** on two cores,
+or 9.4 on one. These use decimal GB and assume each token streams the weights
+once, with all bandwidth available to them. Compute, activations, KV-cache
+traffic, and synchronization are omitted.
+
+The recorded 5.88 tokens/s is about 33% of that estimate. Its implied weight
+traffic is 0.89 GB/s; this is calculated from token throughput, not measured
+DRAM traffic. The gap suggests investigating arithmetic, memory access, and
+coordination costs, but does not prove an achievable 3x speedup. Likewise,
+inference scaling 1.51x versus streaming's 1.90x does not isolate synchronization
+cost: the workloads differ, and streaming bandwidth alone cannot distinguish
+compute limits from memory stalls or scheduling overhead.
 
 ## Fixed workload
 

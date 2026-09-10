@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="110" viewBox="0 0 640 110" role="img" aria-labelledby="title desc">
+  <title id="title">A tortoise heading toward 17.9 tokens per second</title>
+  <desc id="desc">Current speed is 5.88 tokens per second, 33 percent of the estimated memory ceiling. The tortoise faces right toward the goal.</desc>
+  <style>
+    text { font-family: system-ui, -apple-system, sans-serif; fill: #57606a; font-size: 14px; }
+    .track { stroke: #d0d7de; }
+    @media (prefers-color-scheme: dark) {
+      text { fill: #c9d1d9; }
+      .track { stroke: #484f58; }
+    }
+  </style>
+  <!-- Track: x = 28 + (speed / 17.9) * 584; 5.88 tok/s is x = 220. -->
+  <path class="track" d="M28 74 H612" fill="none" stroke-width="6" stroke-linecap="round"/>
+  <path d="M28 74 H220" fill="none" stroke="#d88727" stroke-width="6" stroke-linecap="round"/>
+  <text x="220" y="21" text-anchor="middle" font-weight="600">5.88 tok/s</text>
+  <!-- Tortoise: tail at left, raised head and eye at right. -->
+  <g stroke="#385b36" stroke-width="2" stroke-linejoin="round">
+    <path d="M190 58 L178 53 L185 63 Z" fill="#a3bc6c"/>
+    <path d="M195 58 L192 69 Q198 73 204 68 L207 59 M226 58 L230 69 Q237 72 241 67 L237 57" fill="#a3bc6c"/>
+    <path d="M234 55 Q245 56 247 46 Q249 38 258 40 Q271 41 269 50 Q268 59 257 58 L239 64" fill="#a3bc6c"/>
+    <path d="M185 59 C185 24 239 22 245 59 Q217 70 185 59 Z" fill="#72954d"/>
+    <path d="M207 35 L225 34 L235 48 L224 59 L207 57 L199 45 Z" fill="#a3b868"/>
+    <path d="M207 35 L203 31 M225 34 L230 32 M235 48 L243 49 M224 59 L225 64 M207 57 L204 64 M199 45 L189 43" fill="none"/>
+  </g>
+  <circle cx="261" cy="46" r="2" fill="#233521"/>
+  <path d="M263 53 Q266 54 268 52" fill="none" stroke="#385b36" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M612 69 V35 L596 35 L596 48 L612 48" fill="#d88727" stroke="#a96518" stroke-width="2" stroke-linejoin="round"/>
+  <text x="28" y="101">0</text>
+  <text x="612" y="101" text-anchor="end">17.9 tok/s · estimated ceiling</text>
+</svg>
