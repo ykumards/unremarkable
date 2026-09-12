@@ -24,8 +24,9 @@ void quantize_q8(const float* input, int size, Q8Block* output);
 // Expand one quantized row into [size] floats.
 void dequantize_q8(const Q8Block* input, int size, float* output);
 
-// As matvec with both operands Q8_0. Products accumulate in int32 within a
-// group, which is exact, then in FP32 across groups, so every target agrees.
+// As matvec with both operands Q8_0. Input values must be in [-127, 127], as
+// produced by quantize_q8. The integer dot within each group is exact; groups
+// then accumulate in FP32, so every target agrees.
 void matvec_q8(const Q8Block* input, const Q8Block* weight, int columns, int rows, float* output);
 
 // Build without fast-math or FMA contraction. ARM matvec uses four NEON vector

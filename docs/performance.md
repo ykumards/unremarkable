@@ -5,6 +5,48 @@ plotting progress. Append new variants and runs; retain the individual numbers,
 output hashes, and executable hashes. Exclude warmups and failed attempts.
 Raw output and JSON metrics remain under ignored `results/`.
 
+## Six-op Q8 dot product (2026-09-12)
+
+The retained kernel pairs int8 products in int16 before widening, reducing the
+inner arithmetic from eight instructions to six per 32 values. A follow-up uses
+`vpaddl` for the first reduction instead of adding into a zeroed accumulator.
+Loads, quantization scales, and the FP32 accumulation order are unchanged.
+
+Final comparison against the original kernel, on the same boot, in ABBA order:
+
+| Kernel, two threads | Runs | Decode tok/s (mean ± sample std) | Mean TTFT |
+| --- | ---: | ---: | ---: |
+| Original eight-op | 2 | 5.321 ± 0.004 | 3.995 s |
+| Six-op with direct reduction | 2 | **5.835 ± 0.004** | **3.627 s** |
+
+Decode improved **9.7%**, and TTFT fell **9.2%** in this comparison. These are
+short runs, not a stability guarantee. Compare within this test, rather than
+against the older 5.77 tok/s result from a different device state and workload.
+
+The first experiment averaged 5.403 ± 0.127 tok/s for eight-op versus
+5.851 ± 0.299 for six-op (three runs each, 8.3% improvement). Its variability
+motivated the follow-up: six-op averaged 5.629 ± 0.006 versus 5.844 ± 0.012
+with direct reduction (two runs each, 3.8%). All 14 measured runs are retained
+in [benchmarks.csv](benchmarks.csv); do not pool these separate comparisons.
+
+Each run used SmolLM2-135M Q8, context 512, two threads, the lighthouse prompt
+below, no system prompt, greedy sampling, and 128 new tokens (127 timed decode
+steps). Each comparison included a separate 16-token warmup for each binary.
+The UI stayed running and the governor remained `ondemand`. All 14 outputs
+were byte-identical, SHA-256
+`22c7678796cc03773b23487eb80b72fa4e9b0230722e76fd8f7ed49c20e2d232`.
+
+`make check`, `make check-sanitize`, and `make check-format` passed for the final
+source, as did the ARMv7 kernel test. The new test covers every activation in
+[-127, 127] against every int8 weight, including -128. Pairing cannot overflow:
+`2 × 128 × 127 = 32512 < 32767`. The range requirement is documented in
+`kernels.h`; projection inputs already satisfy it through `quantize_q8`.
+
+Raw outputs, metrics, commands, environment, and binary/model hashes are in
+`results/six-op-20260912/`, `results/six-direct-20260912/`, and
+`results/six-final-20260912/`. Experiment binaries are separate from the tablet's
+installed engine. Build flags match the ARMv7 flags below; only the kernel changes.
+
 ## NEON matvec, corrected (2026-09-10)
 
 An earlier entry here reported the NEON kernel as about 24% faster than scalar.

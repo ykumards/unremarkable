@@ -70,6 +70,29 @@ bool quantized_matches_reference(Random&& random) {
   return true;
 }
 
+// Exercise every representable weight against every supported activation,
+// repeated across a group. Unit scales make overflow visible as an exact error.
+bool quantized_extremes() {
+  using unremarkable::Q8Block;
+  Q8Block input{}, weight{};
+  input.scale = weight.scale = 1;
+  for (int x = -127; x <= 127; ++x) {
+    for (int w = -128; w <= 127; ++w) {
+      for (int k = 0; k < unremarkable::kQuantGroup; ++k) {
+        input.values[k] = static_cast<int8_t>(x);
+        weight.values[k] = static_cast<int8_t>(w);
+      }
+      float output;
+      unremarkable::matvec_q8(&input, &weight, unremarkable::kQuantGroup, 1, &output);
+      if (output != static_cast<float>(unremarkable::kQuantGroup * x * w)) {
+        std::fprintf(stderr, "q8 integer overflow: input=%d weight=%d got=%g\n", x, w, output);
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 int main() {
   uint32_t seed = 1;
   auto random = [&] {
@@ -108,7 +131,7 @@ int main() {
       }
     }
   }
-  if (!quantized_matches_reference(random)) {
+  if (!quantized_matches_reference(random) || !quantized_extremes()) {
     return 1;
   }
   std::puts("matvec: reference, tails, unaligned buffers, and Q8_0 passed");

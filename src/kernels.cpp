@@ -13,17 +13,20 @@
 namespace unremarkable {
 namespace {
 
-// int8 products fit int16, and vpadal widens to int32 before eight can overflow.
+// Pair products in int16 before widening. Projection inputs are clamped to
+// [-127, 127], so even weights of -128 give at most 2 * 128 * 127 = 32512.
 inline int32_t dot_group(const int8_t* a, const int8_t* b) {
 #if defined(__ARM_NEON) && !defined(UNREMARKABLE_SCALAR)
   const int8x16_t a0 = vld1q_s8(a);
   const int8x16_t a1 = vld1q_s8(a + 16);
   const int8x16_t b0 = vld1q_s8(b);
   const int8x16_t b1 = vld1q_s8(b + 16);
-  int32x4_t acc = vpadalq_s16(vdupq_n_s32(0), vmull_s8(vget_low_s8(a0), vget_low_s8(b0)));
-  acc = vpadalq_s16(acc, vmull_s8(vget_high_s8(a0), vget_high_s8(b0)));
-  acc = vpadalq_s16(acc, vmull_s8(vget_low_s8(a1), vget_low_s8(b1)));
-  acc = vpadalq_s16(acc, vmull_s8(vget_high_s8(a1), vget_high_s8(b1)));
+  int16x8_t products0 = vmull_s8(vget_low_s8(a0), vget_low_s8(b0));
+  products0 = vmlal_s8(products0, vget_high_s8(a0), vget_high_s8(b0));
+  int16x8_t products1 = vmull_s8(vget_low_s8(a1), vget_low_s8(b1));
+  products1 = vmlal_s8(products1, vget_high_s8(a1), vget_high_s8(b1));
+  int32x4_t acc = vpaddlq_s16(products0);
+  acc = vpadalq_s16(acc, products1);
   const int32x2_t pair = vadd_s32(vget_low_s32(acc), vget_high_s32(acc));
   return vget_lane_s32(vpadd_s32(pair, pair), 0);
 #else
