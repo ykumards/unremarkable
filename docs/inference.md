@@ -79,7 +79,7 @@ in groups of three. The keys are cached after RoPE, while values are unchanged.
 ## Zoom in: one matrix-vector multiplication
 
 The `Matrix` argument carries a read-only pointer, row count, and column count.
-The entire scalar implementation is:
+Without the prefetch hint added in rung 02, the entire implementation is:
 
 ```cpp
 for (int row = 0; row < weight.rows; ++row) {
@@ -113,9 +113,16 @@ advance, older weight lines can be evicted. The input is repeatedly reused and
 likely to remain cached. Stores update the output through caches; they need not
 be written all the way back to DRAM before the next operation can use them.
 
-The code has no explicit SIMD, prefetch, or threads. Normal compiler optimization
-is enabled; this is a scalar source baseline, not a guarantee about every machine
-instruction a compiler may generate.
+Waiting for those misses dominates. At 1.08 tokens/s the loop pulls weights at
+about 40% of the rate one core can stream. Rung 02 therefore walks each row one
+64-byte line (16 floats) at a time and issues `__builtin_prefetch` for the line
+256 bytes ahead, so the next miss is already in flight while the current line is
+summed. The additions keep their order, so results are bit-identical, and decode
+rises to 1.44 tokens/s ([measurements](optimizations.md#measured-02-on-the-tablet-2026-09-12)).
+
+The code has no explicit SIMD or threads. Normal compiler optimization is enabled;
+this is a scalar source, not a guarantee about every machine instruction a
+compiler may generate.
 
 ## 5. Finish the token, then repeat
 

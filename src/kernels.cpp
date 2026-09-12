@@ -40,12 +40,24 @@ void softmax_inplace(float* values, int size) {
 }
 
 // Each output is one row's dot product. The small input is reused while the
-// weight pointer advances through the matrix. Cache placement is hardware-managed.
+// weight pointer advances through the matrix. The loop would otherwise stall on
+// every weight cache miss, so each 64-byte line is requested 256 bytes before the
+// loop reaches it. The hint changes no arithmetic: additions stay in column order.
+// Hints past the end of the matrix are harmless; a prefetch never faults.
 void matvec(const float* input, Matrix weight, float* output) {
+  constexpr int floats_per_line = 16;
+  constexpr int prefetch_ahead = 64;
   for (int row = 0; row < weight.rows; ++row) {
     const float* weights = weight.data + static_cast<size_t>(row) * weight.columns;
     float sum = 0;
-    for (int column = 0; column < weight.columns; ++column) {
+    int column = 0;
+    while (column <= weight.columns - floats_per_line) {
+      __builtin_prefetch(weights + column + prefetch_ahead);
+      for (const int end = column + floats_per_line; column < end; ++column) {
+        sum += weights[column] * input[column];
+      }
+    }
+    for (; column < weight.columns; ++column) {
       sum += weights[column] * input[column];
     }
     output[row] = sum;

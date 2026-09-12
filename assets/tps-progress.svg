@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="640" height="110" viewBox="0 0 640 110" role="img" aria-labelledby="title desc">
-  <title id="title">1.08 tok/s toward 17.9 tok/s</title>
-  <desc id="desc">The tortoise faces right, from the FP32 baseline toward the Q8 two-core target.</desc>
+  <title id="title">1.44 tok/s toward 17.9 tok/s</title>
+  <desc id="desc">The tortoise faces right, from FP32 with prefetch toward the Q8 two-core target.</desc>
   <style>
     text { font-family: system-ui, -apple-system, sans-serif; fill: #57606a; font-size: 14px; }
     .track { stroke: #d0d7de; }
@@ -9,13 +9,13 @@
       .track { stroke: #484f58; }
     }
   </style>
-  <!-- Track: x = 28 + (speed / 17.9) * 584; 1.08 tok/s is x = 63. -->
+  <!-- Track: x = 28 + (speed / 17.9) * 584; 1.44 tok/s is x = 75. -->
   <path class="track" d="M28 74 H612" fill="none" stroke-width="6" stroke-linecap="round"/>
-  <path d="M28 74 H63" fill="none" stroke="#d88727" stroke-width="6" stroke-linecap="round"/>
-  <text x="63" y="21" text-anchor="middle" font-weight="600">1.08 tok/s</text>
+  <path d="M28 74 H75" fill="none" stroke="#d88727" stroke-width="6" stroke-linecap="round"/>
+  <text x="75" y="21" text-anchor="middle" font-weight="600">1.44 tok/s</text>
   <!-- Tortoise: tail at left, raised head and eye at right. Drawn at x = 220,
        translated to sit on the current mark. -->
-  <g transform="translate(-157,0)">
+  <g transform="translate(-145,0)">
   <g stroke="#385b36" stroke-width="2" stroke-linejoin="round">
     <path d="M190 58 L178 53 L185 63 Z" fill="#a3bc6c"/>
     <path d="M195 58 L192 69 Q198 73 204 68 L207 59 M226 58 L230 69 Q237 72 241 67 L237 57" fill="#a3bc6c"/>
