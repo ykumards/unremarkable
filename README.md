@@ -12,18 +12,11 @@ checkpoint. The existing optimized engine lives on
 
 ## Ceiling
 
-SmolLM2-135M on the reMarkable 2: **1.08 tok/s**, **23.6 s** to the first token.
-[Baseline measurements](docs/optimizations.md#measured-01-on-the-tablet-2026-09-12).
+![1.08 tok/s toward a 17.9 tok/s target](assets/tps-progress.svg?v=17.9)
 
-![A right-facing tortoise at 1.08 tok/s, heading toward the longer-term Q8 two-core estimate of 17.9 tok/s](assets/tps-progress.svg)
-
-Our longer-term target is the **17.9 tok/s memory-only estimate for Q8 on two cores**:
-**2.708 GB/s** measured streaming bandwidth ÷ **0.151 GB of weights per token**.
-Getting there from this FP32 baseline includes quantization and threading.
-Arithmetic and other memory traffic reduce
-achievable speed. [Measurements](https://github.com/ykumards/unremarkable/blob/optimized/docs/performance.md#memory-roofline-2026-09-10).
-
-For FP32 on one core alone, the equivalent estimate is **1.423 ÷ 0.538 ≈ 2.65 tok/s**.
+SmolLM2-135M, Q8, two cores: **2.708 GB/s ÷ 0.151 GB/token ≈ 17.9 tok/s**
+memory-only ceiling. [Calculation](https://github.com/ykumards/unremarkable/blob/optimized/docs/performance.md#memory-roofline-2026-09-10)
+· [FP32 baseline runs](docs/optimizations.md#measured-01-on-the-tablet-2026-09-12).
 
 ## Start reading
 
