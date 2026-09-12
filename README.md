@@ -1,4 +1,4 @@
-<h1 align="center">unremarkable · naive FP32</h1>
+<h1 align="center">unremarkable</h1>
 
 <p align="center">
   <img src="assets/mascot.webp" alt="Unremarkable mascot: an unimpressed orange cat" width="300">
@@ -13,6 +13,16 @@ checkpoint. The existing optimized engine lives on
 On the reMarkable 2 it generates SmolLM2-135M at **1.08 tokens/s**, after a
 23.6 s wait for the first token: the same speed as the engine it was refactored
 from. [How that was measured](docs/optimizations.md#measured-01-on-the-tablet-2026-09-12).
+
+## Ceiling
+
+![A right-facing tortoise at 1.08 tok/s, heading toward the estimated single-core FP32 ceiling of 2.65 tok/s](assets/tps-progress.svg)
+
+For this FP32, one-thread baseline: **1.423 GB/s** measured streaming bandwidth
+divided by roughly **0.538 GB of weights per token** gives **2.65 tok/s**.
+We're at **41%** of that memory-only estimate; arithmetic and other memory traffic
+reduce achievable speed. Q8 on two cores has a different estimate:
+[17.9 tok/s](https://github.com/ykumards/unremarkable/blob/optimized/docs/performance.md#memory-roofline-2026-09-10).
 
 ## Start reading
 
