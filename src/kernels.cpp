@@ -1,6 +1,7 @@
 // Adapted from karpathy/llama2.c; see THIRD_PARTY.md and LICENSE.
 #include "kernels.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstring>
@@ -12,6 +13,31 @@
 #include "model.h"
 
 namespace unremarkable {
+namespace {
+
+// int8 products fit int16, and vpadal widens to int32 before eight can overflow.
+int32_t dot_q8(const int8_t* a, const int8_t* b) {
+#if defined(__ARM_NEON) && !defined(UNREMARKABLE_SCALAR)
+  const int8x16_t a0 = vld1q_s8(a);
+  const int8x16_t a1 = vld1q_s8(a + 16);
+  const int8x16_t b0 = vld1q_s8(b);
+  const int8x16_t b1 = vld1q_s8(b + 16);
+  int32x4_t acc = vpadalq_s16(vdupq_n_s32(0), vmull_s8(vget_low_s8(a0), vget_low_s8(b0)));
+  acc = vpadalq_s16(acc, vmull_s8(vget_high_s8(a0), vget_high_s8(b0)));
+  acc = vpadalq_s16(acc, vmull_s8(vget_low_s8(a1), vget_low_s8(b1)));
+  acc = vpadalq_s16(acc, vmull_s8(vget_high_s8(a1), vget_high_s8(b1)));
+  const int32x2_t pair = vadd_s32(vget_low_s32(acc), vget_high_s32(acc));
+  return vget_lane_s32(vpadd_s32(pair, pair), 0);
+#else
+  int32_t sum = 0;
+  for (int i = 0; i < kQuantGroup; i++) {
+    sum += a[i] * b[i];
+  }
+  return sum;
+#endif
+}
+
+}  // namespace
 
 void rmsnorm(const float* input, const float* weight, int size, float* output) {
   float sum = 0;
@@ -49,7 +75,8 @@ void matvec(const float* input, Matrix weight, float* output) {
   constexpr int floats_per_line = 16;
   constexpr int prefetch_ahead = 64;
   for (int row = 0; row < weight.rows; ++row) {
-    const float* weights = weight.data + static_cast<size_t>(row) * weight.columns;
+    const float* weights =
+        reinterpret_cast<const float*>(weight.data) + static_cast<size_t>(row) * weight.columns;
     float sum = 0;
     int column = 0;
 #if defined(__ARM_NEON) && !defined(UNREMARKABLE_SCALAR)
@@ -88,9 +115,57 @@ void matvec(const float* input, Matrix weight, float* output) {
   }
 }
 
-void embedding_lookup(const float* table, int token, int dim, float* output) {
-  const float* row = table + static_cast<size_t>(token) * dim;
-  std::memcpy(output, row, dim * sizeof(float));
+void quantize_q8(const float* input, int size, Q8Block* output) {
+  const int blocks = q8_blocks(size);
+  for (int b = 0; b < blocks; b++) {
+    const int base = b * kQuantGroup;
+    const int count = std::min(kQuantGroup, size - base);
+    float largest = 0;
+    for (int i = 0; i < count; i++) {
+      largest = std::fmax(largest, std::fabs(input[base + i]));
+    }
+    Q8Block& block = output[b];
+    block.scale = largest / 127.0f;
+    // A zero group would divide by zero; its values are already exactly zero.
+    const float inverse = largest > 0 ? 127.0f / largest : 0.0f;
+    for (int i = 0; i < count; i++) {
+      const long rounded = std::lround(input[base + i] * inverse);
+      block.values[i] = static_cast<int8_t>(std::clamp(rounded, -127L, 127L));
+    }
+    for (int i = count; i < kQuantGroup; i++) {
+      block.values[i] = 0;
+    }
+  }
+}
+
+// Each group is an exact integer dot, scaled by both groups' scales.
+void matvec_q8(const Q8Block* input, Matrix weight, float* output) {
+  const int blocks = q8_blocks(weight.columns);
+  const Q8Block* rows = reinterpret_cast<const Q8Block*>(weight.data);
+  for (int row = 0; row < weight.rows; ++row) {
+    const Q8Block* groups = rows + static_cast<size_t>(row) * blocks;
+    float sum = 0;
+    for (int b = 0; b < blocks; ++b) {
+      __builtin_prefetch(reinterpret_cast<const char*>(groups + b) + 256);
+      const int32_t dot = dot_q8(groups[b].values, input[b].values);
+      sum += static_cast<float>(dot) * (groups[b].scale * input[b].scale);
+    }
+    output[row] = sum;
+  }
+}
+
+void embedding_lookup(Matrix table, int token, float* output) {
+  const std::byte* row =
+      table.data + static_cast<size_t>(token) * row_bytes(table.format, table.columns);
+  if (table.format == Format::kQ8_0) {
+    const Q8Block* blocks = reinterpret_cast<const Q8Block*>(row);
+    for (int i = 0; i < table.columns; ++i) {
+      const Q8Block& block = blocks[i / kQuantGroup];
+      output[i] = block.scale * block.values[i % kQuantGroup];
+    }
+  } else {
+    std::memcpy(output, row, table.columns * sizeof(float));
+  }
 }
 
 void rope_inplace(int position, int head_size, int query_size, int key_size, float theta,

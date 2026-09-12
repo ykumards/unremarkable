@@ -1,0 +1,1 @@
+{"chunks":40,"context":512,"tokens_in_text":303415,"scored":10200,"reference_ppl":18.7859,"candidate_ppl":27.8295,"nll_difference":0.392989,"nll_difference_se_chunks":0.0129611,"nll_difference_se_tokens":0.00998775,"ppl_ratio":1.4814,"kl_mean":0.404042,"kl_se_chunks":0.00858021,"kl_median":0.33876,"kl_p99":1.81703,"kl_max":7.7415,"same_top":0.643137,"seconds":450.85}

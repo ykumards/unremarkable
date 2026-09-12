@@ -15,6 +15,7 @@ MODEL = ROOT / "models/stories260K.bin"
 TOKENIZER = ROOT / "models/tok512.bin"
 CHAT_TOKENIZER = ROOT / "models/smollm2-135m.tok"
 MODEL_MAGIC = 0x4B524E55
+QUANT_GROUP = 32  # Values per scale; must match kQuantGroup in src/kernels.h.
 
 # Identifiers from the reference tokenizer for SmolLM2-135M-Instruct, including
 # the text runs that tools/export_hf.py wraps in ChatML markers.
@@ -62,43 +63,86 @@ def constant_model(path, chosen_token):
                      + struct.pack(f"<{len(weights)}f", *weights))
 
 
-def reference_model(path, shared, kv_heads, theta=10000.0, tagged=False):
-    """Independent float64 forward oracle; tiny random FP32 checkpoint on disk."""
-    dim, hidden, layers, heads, vocab, context = 16, 24, 2, 4, 512, 6
+
+def float32(value):
+    """Round a Python float to the FP32 value the engine would hold."""
+    return struct.unpack("<f", struct.pack("<f", value))[0]
+
+
+def quantize_q8(values, columns):
+    """Independent Q8_0, written against the format rather than the engine's code.
+
+    Returns the encoded rows and the values the engine will compute with, so the
+    oracle sees what the checkpoint holds, not the weights it came from.
+    """
+    encoded, seen = bytearray(), []
+    for start in range(0, len(values), columns):
+        row = values[start:start + columns]
+        for base in range(0, columns, QUANT_GROUP):
+            group = row[base:base + QUANT_GROUP]
+            group = group + [0.0] * (QUANT_GROUP - len(group))
+            largest = max(abs(value) for value in group)
+            scale = float32(largest / 127.0)
+            inverse = float32(127.0 / largest) if largest > 0 else 0.0
+            quantized = []
+            for value in group:
+                scaled = float32(value * inverse)
+                rounded = int(math.copysign(math.floor(abs(scaled) + 0.5), scaled))
+                quantized.append(max(-127, min(127, rounded)))
+            encoded += struct.pack(f"<f{QUANT_GROUP}b", scale, *quantized)
+            seen.extend(float32(scale * q) for q in quantized[:columns - base])
+    return bytes(encoded), seen
+
+
+def reference_model(path, shared, kv_heads, theta=10000.0, tagged=False, quantize=False,
+                    dim=16, hidden=24):
+    """Independent float64 forward oracle; tiny random checkpoint on disk.
+
+    With quantize set the matrices are written as Q8_0, and the oracle quantizes
+    each projection input as the engine does. Norm vectors stay FP32 either way.
+    """
+    layers, heads, vocab, context = 2, 4, 512, 6
     head = dim // heads
     kv = head * kv_heads
     rng = random.Random(17)
-    packed = []
+    blob = []
 
-    def tensor(count, norm=False):
+    def tensor(count, norm=False, columns=None):
         values = [rng.uniform(0.8, 1.2) if norm else rng.uniform(-0.3, 0.3)
                   for _ in range(count)]
         # The oracle reads precisely the float32 values serialized for C++.
         values = list(struct.unpack(f"<{count}f", struct.pack(f"<{count}f", *values)))
-        packed.extend(values)
+        if quantize and columns is not None:
+            encoded, values = quantize_q8(values, columns)
+            blob.append(encoded)
+        else:
+            blob.append(struct.pack(f"<{count}f", *values))
         return values
 
-    embedding = tensor(vocab * dim)
+    embedding = tensor(vocab * dim, columns=dim)
     att_norm = tensor(layers * dim, norm=True)
-    wq = tensor(layers * dim * dim)
-    wk = tensor(layers * kv * dim)
-    wv = tensor(layers * kv * dim)
-    wo = tensor(layers * dim * dim)
+    wq = tensor(layers * dim * dim, columns=dim)
+    wk = tensor(layers * kv * dim, columns=dim)
+    wv = tensor(layers * kv * dim, columns=dim)
+    wo = tensor(layers * dim * dim, columns=dim)
     ffn_norm = tensor(layers * dim, norm=True)
-    w1 = tensor(layers * hidden * dim)
-    w2 = tensor(layers * dim * hidden)
-    w3 = tensor(layers * hidden * dim)
+    w1 = tensor(layers * hidden * dim, columns=dim)
+    w2 = tensor(layers * dim * hidden, columns=hidden)
+    w3 = tensor(layers * hidden * dim, columns=dim)
     final_norm = tensor(dim, norm=True)
     if not tagged:
         tensor(context * head)  # Legacy RoPE tables, unused.
-    classifier = embedding if shared else tensor(vocab * dim)
+    classifier = embedding if shared else tensor(vocab * dim, columns=dim)
     signed_vocab = vocab if shared else -vocab
-    if tagged:
+    if quantize:
+        header = struct.pack("<Ii7ifi", MODEL_MAGIC, 2, dim, hidden, layers, heads, kv_heads,
+                             signed_vocab, context, theta, 1)
+    elif tagged:
         header = struct.pack("<Ii7if", MODEL_MAGIC, 1, dim, hidden, layers, heads, kv_heads,
                              signed_vocab, context, theta)
     else:
         header = struct.pack("<7i", dim, hidden, layers, heads, kv_heads, signed_vocab, context)
-    path.write_bytes(header + struct.pack(f"<{len(packed)}f", *packed))
+    path.write_bytes(header + b"".join(blob))
     keys, values = [[] for _ in range(layers)], [[] for _ in range(layers)]
 
     def norm(x, weights):
@@ -107,6 +151,8 @@ def reference_model(path, shared, kv_heads, theta=10000.0, tagged=False):
 
     def mv(x, weights, rows, layer=0):
         columns = len(x)
+        if quantize:
+            _, x = quantize_q8(x, columns)  # The engine quantizes every projection input.
         start = layer * rows * columns
         return [sum(x[j] * weights[start + row * columns + j] for j in range(columns))
                 for row in range(rows)]
@@ -154,6 +200,30 @@ class EngineTests(unittest.TestCase):
                 for kv_heads in (1, 2, 4):
                     with self.subTest(shared=shared, kv_heads=kv_heads):
                         reference = reference_model(model, shared, kv_heads)
+                        tokens = [1, 19, 43, 7]
+                        proc = subprocess.run([str(PROBE), str(model), *map(str, tokens)],
+                                              capture_output=True, timeout=60)
+                        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+                        rows = proc.stdout.decode().splitlines()
+                        self.assertEqual(len(rows), len(tokens))
+                        for pos, row in enumerate(rows):
+                            actual = list(map(float, row.split()))
+                            expected = reference(tokens[pos], pos)
+                            self.assertEqual(len(actual), len(expected))
+                            for a, b in zip(actual, expected):
+                                self.assertAlmostEqual(a, b, delta=2e-5)
+
+
+    def test_quantized_checkpoint_matches_reference(self):
+        """Q8_0 rows carry inline scales, so every weight stride changes with them."""
+        with tempfile.TemporaryDirectory() as directory:
+            model = Path(directory) / "quantized.bin"
+            # dim 64 gives whole blocks; hidden 72 leaves a padded tail in w2.
+            for shared in (False, True):
+                for kv_heads in (1, 2, 4):
+                    with self.subTest(shared=shared, kv_heads=kv_heads):
+                        reference = reference_model(model, shared, kv_heads, tagged=True,
+                                                    quantize=True, dim=64, hidden=72)
                         tokens = [1, 19, 43, 7]
                         proc = subprocess.run([str(PROBE), str(model), *map(str, tokens)],
                                               capture_output=True, timeout=60)
