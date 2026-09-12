@@ -9,19 +9,20 @@ TinyStories follows the same path with different dimensions.
 
 | Owner | Contents | What survives? |
 | --- | --- | --- |
-| `Model` | The FP32 weight payload and read-only matrix views | The whole engine lifetime |
+| `Model` | The weight payload, FP32 or Q8_0, and read-only matrix views | The whole engine lifetime |
 | `KVCache` | Each layer's keys and values, `[layer, context, kv_dim]` | Earlier positions in the current sequence |
-| `Scratch` | Residual, normalized input, query, attention output, projected result, gate, up, scores, logits | Storage survives; contents are overwritten |
+| `Scratch` | Residual, normalized input, query, attention output, projected result, gate, up, scores, logits, quantized input | Storage survives; contents are overwritten |
 
 All three have backing storage in process RAM. Cache lines move through the CPU
 cache hierarchy as instructions read and write them. The code owns buffers and
 controls access order; it does not pin a vector to L1 or a matrix to L2.
 
-For SmolLM2 at context 512, weights occupy about 513 MiB and K/V storage occupies
-`30 × 512 × 192 × 2 × 4 = 23,592,960` bytes, or 22.5 MiB. A residual vector is
-only `576 × 4 = 2304` bytes. Named buffers keep their roles visible; `projected`
-is reused for both residual additions. This version uses one extra dim-sized
-buffer versus the original engine to separate normalization from attention output.
+For SmolLM2 at context 512, weights occupy about 513 MiB as FP32 or 144 MiB as
+Q8_0, and K/V storage occupies `30 × 512 × 192 × 2 × 4 = 23,592,960` bytes, or
+22.5 MiB. A residual vector is only `576 × 4 = 2304` bytes. Named buffers keep
+their roles visible; `projected` is reused for both residual additions. This
+version uses one extra dim-sized buffer versus the original engine to separate
+normalization from attention output.
 
 ## 1. Load once per engine process
 
@@ -35,9 +36,10 @@ together, then all layers' K matrices, and so on. The loader translates that int
 `model.layers[layer].query`, `.key`, `.value`, etc., once at startup. The forward
 pass therefore needs no checkpoint offset arithmetic.
 
-Supported files are legacy llama2.c and tagged UNRK version 1 FP32 checkpoints.
-All dimensions and byte counts are checked before allocating the weight payload.
-There is no whole-model read from storage inside `forward()`.
+Supported files are legacy llama2.c, tagged UNRK version 1 (FP32), and version 2
+(FP32 or Q8_0) checkpoints. All dimensions and byte counts are checked before
+allocating the weight payload. There is no whole-model read from storage inside
+`forward()`.
 
 ## 2. Turn text into tokens
 
@@ -48,9 +50,10 @@ order. This baseline uses the same one-token path for prefill and decode.
 
 ## 3. Look up the embedding
 
-`embedding_lookup()` copies the selected embedding row into `scratch.residual`.
-For this model that gives `residual[576]`: the current token's running activation.
-Its contents change as it passes through the layers.
+`embedding_lookup()` copies the selected embedding row into `scratch.residual`,
+expanding it from Q8_0 when needed. For this model that gives `residual[576]`: the
+current token's running activation. Its contents change as it passes through the
+layers.
 
 ## 4. Execute one layer
 
@@ -79,7 +82,7 @@ in groups of three. The keys are cached after RoPE, while values are unchanged.
 ## Zoom in: one matrix-vector multiplication
 
 The `Matrix` argument carries a read-only pointer, row count, and column count.
-Without the prefetch hint added in rung 02, the entire implementation is:
+Without the prefetch hint added in rung 02, the entire FP32 implementation is:
 
 ```cpp
 for (int row = 0; row < weight.rows; ++row) {
@@ -129,6 +132,14 @@ in a different order makes the logits differ slightly from the scalar loop (at
 most 2e-4 on SmolLM2); building with `-DUNREMARKABLE_SCALAR` restores rung 02's
 loop.
 
+Rung 04 reads fewer bytes. A Q8_0 matrix stores each row as blocks of 32 int8
+weights with one FP32 scale, and `Engine::project()` first quantizes the input
+into the same blocks. Each block is then an exact integer dot product, scaled by
+both blocks' scales, and the blocks add in FP32. SmolLM2's matrices shrink from
+538 MB to 151 MB, and decode reaches 3.80 tokens/s
+([measurements](optimizations.md#measured-04-on-the-tablet-2026-09-12)).
+Quantization moves the logits (0.19 on average) and changes the generated text.
+
 The code has no threads. Normal compiler optimization is enabled; the source is
 not a guarantee about every machine instruction a compiler may generate.
 
@@ -144,8 +155,8 @@ that chosen ID becomes the next call's input at the next position.
 
 The KV cache avoids running previous tokens through the network again, but the
 new token still uses all the projection weights. SmolLM2 traverses about 538 MB
-of FP32 matrix weights per token; most cannot survive in CPU caches between
-passes. KV reads grow with the length of the sequence.
+of FP32 matrix weights per token, or 151 MB as Q8_0; most cannot survive in CPU
+caches between passes. KV reads grow with the length of the sequence.
 
 `reset()` restarts position counting. We keep allocations and weights, overwrite
 each new K/V slot before use, and never read the old sequence's later slots.

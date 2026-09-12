@@ -7,7 +7,7 @@ SOURCES = src/main.cpp src/engine.cpp src/model.cpp src/sampler.cpp src/kernels.
 HEADERS = src/engine.h src/model.h src/sampler.h src/kernels.h src/tokenizer.h
 CORE = src/engine.cpp src/model.cpp src/sampler.cpp src/kernels.cpp src/tokenizer.cpp
 
-.PHONY: all test sanitize models test-models chat-model tablet tablet-image
+.PHONY: all test sanitize models test-models chat-model chat-model-q8 tablet tablet-image
 all: build/unremarkable
 
 build:
@@ -31,6 +31,12 @@ chat-model:
 	$(PYTHON) tools/download.py smollm2
 	$(PYTHON) tools/export_hf.py models/hf/SmolLM2-135M-Instruct \
 		-o models/smollm2-135m.bin -c 2048
+
+# The same weights as Q8_0: 144 MiB rather than 513 MiB. Quantizing needs numpy.
+chat-model-q8:
+	$(PYTHON) tools/download.py smollm2
+	$(PYTHON) tools/export_hf.py models/hf/SmolLM2-135M-Instruct \
+		-o models/smollm2-135m-q8.bin -c 2048 -q q8_0
 
 # Cross build for the reMarkable 2: ARMv7 hard-float, NEON/VFPv4. libstdc++ and
 # libgcc are linked statically because the toolchain ships 6.0.33 while the
