@@ -10,13 +10,15 @@ preserves the first rung. It branches from the original scalar engine
 operation order. It is a refactored baseline, not an exact snapshot of an old
 timed executable.
 [`milestone/02-fp32-prefetch`](https://github.com/ykumards/unremarkable/tree/milestone/02-fp32-prefetch)
-preserves the second.
+preserves the second, and
+[`milestone/03-fp32-neon`](https://github.com/ykumards/unremarkable/tree/milestone/03-fp32-neon)
+the third.
 
 | Stage | Main change to inspect | What it targets | Decode tokens/s |
 | --- | --- | --- | ---: |
 | 01: naive FP32 | Ordinary row-by-row dot products | Establish the computation and data flow | 1.08 |
 | 02: prefetch | Request each weight cache line 256 bytes early | Time spent waiting for memory | 1.44 |
-| Explicit SIMD | Process several values per instruction | Arithmetic, once memory waits shrink | |
+| 03: explicit SIMD | Four NEON accumulators, 16 partial sums | Arithmetic, once memory waits shrink | 1.75 |
 | Q8 | Store groups of integer weights plus scales | Bytes read per token and memory footprint | |
 | Two threads | Split projection rows across cores | Parallel work and coordination costs | |
 | Six-op dot product | Pair integer products before widening | Instructions inside each Q8 group | |
@@ -107,3 +109,32 @@ with it running.
 ```sh
 systemctl stop xochitl   # restart with: systemctl start xochitl
 ```
+
+## Measured: 03 on the tablet (2026-09-12)
+
+No new runs were needed. This branch's default build is byte-identical to the
+NEON-plus-prefetch executable in [02's raw runs](../runs/fp32-neon-20260912b/)
+(`85a8d5ee`), and building with `-DUNREMARKABLE_SCALAR` reproduces 02's
+executable (`cf1de842`).
+
+| `matvec` | Decode tokens/s | Mean | vs 02 | vs 01 | Mean TTFT | Output |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| 02: scalar plus prefetch (`cf1de842`) | 1.436 | 1.436 | 1.00x | 1.33x | 17.61 s | `860192f8` |
+| **03: NEON plus prefetch** (`85a8d5ee`) | 1.749, 1.751 | 1.750 | **1.22x** | 1.62x | 14.42 s | `860192f8` |
+
+With prefetch hiding most memory waits, the scalar loop's limit is its own
+dependency chain: all 16 additions per cache line go into one `sum`, and each
+must wait for the one before it. NEON multiplies four adjacent values per
+instruction into four accumulators, 16 independent partial sums in all, so the
+additions overlap. 1.75 tokens/s is about 0.94 GB/s of weight traffic, 67% of the
+single-core stream rate.
+
+The cost is exactness. The partial sums add in a different order, so results are
+no longer bit-identical to 01 and 02: over 18 prompt positions, host logits move
+by at most 2e-4 against a mean range of 33. The top-1 token is unchanged at every
+position, and the 64-token tablet text is the same. Without prefetch, the same
+NEON loop measured 0.95x of scalar (see 02).
+
+At the 1.40 GB/s one core can stream, 538 MB of FP32 weights per token cap this
+design near 2.6 tokens/s. The next rung reads fewer bytes instead: Q8 stores the
+same weights in 151 MB.

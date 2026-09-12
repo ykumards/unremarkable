@@ -5,6 +5,10 @@
 #include <cstddef>
 #include <cstring>
 
+#if defined(__ARM_NEON) && !defined(UNREMARKABLE_SCALAR)
+#include <arm_neon.h>
+#endif
+
 #include "model.h"
 
 namespace unremarkable {
@@ -39,11 +43,8 @@ void softmax_inplace(float* values, int size) {
   }
 }
 
-// Each output is one row's dot product. The small input is reused while the
-// weight pointer advances through the matrix. The loop would otherwise stall on
-// every weight cache miss, so each 64-byte line is requested 256 bytes before the
-// loop reaches it. The hint changes no arithmetic: additions stay in column order.
-// Hints past the end of the matrix are harmless; a prefetch never faults.
+// Each output is one row's dot product. Each weight cache line is prefetched
+// 256 bytes ahead so the loop does not stall on every miss.
 void matvec(const float* input, Matrix weight, float* output) {
   constexpr int floats_per_line = 16;
   constexpr int prefetch_ahead = 64;
@@ -51,12 +52,35 @@ void matvec(const float* input, Matrix weight, float* output) {
     const float* weights = weight.data + static_cast<size_t>(row) * weight.columns;
     float sum = 0;
     int column = 0;
+#if defined(__ARM_NEON) && !defined(UNREMARKABLE_SCALAR)
+    // 16 independent partial sums; this reorders the additions.
+    float32x4_t sums0 = vdupq_n_f32(0);
+    float32x4_t sums1 = vdupq_n_f32(0);
+    float32x4_t sums2 = vdupq_n_f32(0);
+    float32x4_t sums3 = vdupq_n_f32(0);
+    for (; column <= weight.columns - floats_per_line; column += floats_per_line) {
+      __builtin_prefetch(weights + column + prefetch_ahead);
+      const float* w = weights + column;
+      const float* x = input + column;
+      sums0 = vaddq_f32(sums0, vmulq_f32(vld1q_f32(w), vld1q_f32(x)));
+      sums1 = vaddq_f32(sums1, vmulq_f32(vld1q_f32(w + 4), vld1q_f32(x + 4)));
+      sums2 = vaddq_f32(sums2, vmulq_f32(vld1q_f32(w + 8), vld1q_f32(x + 8)));
+      sums3 = vaddq_f32(sums3, vmulq_f32(vld1q_f32(w + 12), vld1q_f32(x + 12)));
+    }
+    float32x4_t sums = vaddq_f32(vaddq_f32(sums0, sums1), vaddq_f32(sums2, sums3));
+    for (; column <= weight.columns - 4; column += 4) {
+      sums = vaddq_f32(sums, vmulq_f32(vld1q_f32(weights + column), vld1q_f32(input + column)));
+    }
+    float32x2_t halves = vadd_f32(vget_low_f32(sums), vget_high_f32(sums));
+    sum = vget_lane_f32(vpadd_f32(halves, halves), 0);
+#else
     while (column <= weight.columns - floats_per_line) {
       __builtin_prefetch(weights + column + prefetch_ahead);
       for (const int end = column + floats_per_line; column < end; ++column) {
         sum += weights[column] * input[column];
       }
     }
+#endif
     for (; column < weight.columns; ++column) {
       sum += weights[column] * input[column];
     }

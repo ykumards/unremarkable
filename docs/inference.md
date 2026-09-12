@@ -120,9 +120,17 @@ about 40% of the rate one core can stream. Rung 02 therefore walks each row one
 summed. The additions keep their order, so results are bit-identical, and decode
 rises to 1.44 tokens/s ([measurements](optimizations.md#measured-02-on-the-tablet-2026-09-12)).
 
-The code has no explicit SIMD or threads. Normal compiler optimization is enabled;
-this is a scalar source, not a guarantee about every machine instruction a
-compiler may generate.
+Rung 03 then speeds up the arithmetic. With most waits hidden, the single running
+`sum` becomes the limit, because each addition must wait for the one before it.
+NEON instructions multiply four adjacent values at once into four accumulators,
+16 partial sums in all, so the additions overlap and decode reaches 1.75 tokens/s
+([measurements](optimizations.md#measured-03-on-the-tablet-2026-09-12)). Adding
+in a different order makes the logits differ slightly from the scalar loop (at
+most 2e-4 on SmolLM2); building with `-DUNREMARKABLE_SCALAR` restores rung 02's
+loop.
+
+The code has no threads. Normal compiler optimization is enabled; the source is
+not a guarantee about every machine instruction a compiler may generate.
 
 ## 5. Finish the token, then repeat
 
