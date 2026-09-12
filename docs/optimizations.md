@@ -10,16 +10,18 @@ preserves the first rung. It branches from the original scalar engine
 operation order. It is a refactored baseline, not an exact snapshot of an old
 timed executable.
 [`milestone/02-fp32-prefetch`](https://github.com/ykumards/unremarkable/tree/milestone/02-fp32-prefetch)
-preserves the second, and
+preserves the second,
 [`milestone/03-fp32-neon`](https://github.com/ykumards/unremarkable/tree/milestone/03-fp32-neon)
-the third.
+the third, and
+[`milestone/04-q8-neon`](https://github.com/ykumards/unremarkable/tree/milestone/04-q8-neon)
+the fourth.
 
 | Stage | Main change to inspect | What it targets | Decode tokens/s |
 | --- | --- | --- | ---: |
 | 01: naive FP32 | Ordinary row-by-row dot products | Establish the computation and data flow | 1.08 |
 | 02: prefetch | Request each weight cache line 256 bytes early | Time spent waiting for memory | 1.44 |
 | 03: explicit SIMD | Four NEON accumulators, 16 partial sums | Arithmetic, once memory waits shrink | 1.75 |
-| Q8 | Store groups of integer weights plus scales | Bytes read per token and memory footprint | |
+| 04: Q8 | Groups of 32 int8 weights sharing one scale | Bytes read per token and memory footprint | 3.80 |
 | Two threads | Split projection rows across cores | Parallel work and coordination costs | |
 | Six-op dot product | Pair integer products before widening | Instructions inside each Q8 group | |
 
@@ -138,3 +140,42 @@ NEON loop measured 0.95x of scalar (see 02).
 At the 1.40 GB/s one core can stream, 538 MB of FP32 weights per token cap this
 design near 2.6 tokens/s. The next rung reads fewer bytes instead: Q8 stores the
 same weights in 151 MB.
+
+## Measured: 04 on the tablet (2026-09-12)
+
+The [raw run](../runs/q8-neon-20260912/) is one 64-token run on the boot that
+measured 01 to 03, with the UI running.
+
+| Engine | Checkpoint | Decode tokens/s | vs 03 | vs 01 | TTFT | Peak RSS |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 03: FP32 (`85a8d5ee`) | FP32, 538 MB (`82335f56`) | 1.750 | 1.00x | 1.62x | 14.42 s | 539.6 MiB |
+| **04: Q8** (`14b247ca`) | Q8_0, 151 MB (`f91ef591`) | **3.804** | **2.17x** | **3.52x** | 6.37 s | 170.8 MiB |
+
+Q8_0 stores every matrix as groups of 32 int8 weights that share one FP32 scale:
+36 bytes where FP32 needs 128. Each projection input is quantized the same way,
+so every group is an exact integer dot product (`vmull_s8`, widened with
+`vpadalq_s16`) scaled by both groups' scales, and the groups add in FP32. Norm
+vectors and the KV cache stay FP32.
+
+Decode reads 3.6x fewer bytes and runs 2.17x faster. It pulls only about 0.58 GB/s
+of weights, 41% of the single-core stream rate, so the loop is no longer mostly
+waiting on memory; its time goes to the arithmetic in each group. The next rungs
+work on that with a second core and fewer instructions per group.
+
+Peak memory drops from 539.6 to 170.8 MiB, so SmolLM2 now runs beside the tablet
+UI without risk of the OOM killer.
+
+Quantization changes results. Over 18 prompt positions, host logits move by 0.19
+on average from FP32 (worst 1.20, against a mean range of 33). The top-1 token
+agrees at 17 positions, and the top-5 sets share 86 of 90 tokens. The 64-token
+text differs from FP32's (`4ea6b63a`). These logits are byte-identical to the
+Q8 engine on `optimized`.
+
+```sh
+make chat-model-q8   # tools/export_hf.py -q q8_0; needs numpy
+./unremarkable models/smollm2-135m-q8.bin -z models/smollm2-135m-q8.tok \
+  -c 512 -y '' -t 0 -s 1 -i "$prompt" -n 64
+```
+
+UNRK version 2 adds the matrix format after the RoPE base; version 1 files still
+load as FP32.
