@@ -3,11 +3,15 @@
 
 namespace unremarkable {
 
+struct Matrix;
+
 // Scalar FP32 accumulation in index order; build without fast-math or FMA
 // contraction. rmsnorm allows output == input; matvec does not.
 void rmsnorm(const float* input, const float* weight, int size, float* output);
 void softmax_inplace(float* values, int size);
-void matvec(const float* input, const float* weight, int columns, int rows, float* output);
+// input: [weight.columns], reused for every row. weight: row-major FP32.
+// output: [weight.rows], overwritten. No allocations; buffers must not overlap.
+void matvec(const float* input, Matrix weight, float* output);
 
 // Copy one row of the embedding table [vocabulary][dim] into output [dim].
 void embedding_lookup(const float* table, int token, int dim, float* output);

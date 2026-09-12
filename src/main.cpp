@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "engine.h"
+#include "sampler.h"
 #include "tokenizer.h"
 
 namespace {

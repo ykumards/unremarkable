@@ -5,6 +5,8 @@
 #include <cstddef>
 #include <cstring>
 
+#include "model.h"
+
 namespace unremarkable {
 
 void rmsnorm(const float* input, const float* weight, int size, float* output) {
@@ -37,13 +39,16 @@ void softmax_inplace(float* values, int size) {
   }
 }
 
-void matvec(const float* input, const float* weight, int columns, int rows, float* output) {
-  for (int i = 0; i < rows; i++) {
+// Each output is one row's dot product. The small input is reused while the
+// weight pointer advances through the matrix. Cache placement is hardware-managed.
+void matvec(const float* input, Matrix weight, float* output) {
+  for (int row = 0; row < weight.rows; ++row) {
+    const float* weights = weight.data + static_cast<size_t>(row) * weight.columns;
     float sum = 0;
-    for (int j = 0; j < columns; j++) {
-      sum += weight[static_cast<size_t>(i) * columns + j] * input[j];
+    for (int column = 0; column < weight.columns; ++column) {
+      sum += weights[column] * input[column];
     }
-    output[i] = sum;
+    output[row] = sum;
   }
 }
 
