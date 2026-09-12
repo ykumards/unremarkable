@@ -1,0 +1,3 @@
+-std=c++23
+-Isrc
+-D_FILE_OFFSET_BITS=64
