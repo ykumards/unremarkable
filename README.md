@@ -5,8 +5,10 @@
 </p>
 
 The readable starting point: FP32 weights, one CPU thread, ordinary scalar loops.
-This branch reorganizes the original engine so you can follow one token through
-its calculations and memory. The optimized engine lives on `main`.
+Follow one token through its calculations and memory. We improve `main` one
+measured step at a time; [milestone branches](docs/optimizations.md) preserve each
+checkpoint. The existing optimized engine lives on
+[`optimized`](https://github.com/ykumards/unremarkable/tree/optimized).
 
 On the reMarkable 2 it generates SmolLM2-135M at **1.08 tokens/s**, after a
 23.6 s wait for the first token: the same speed as the engine it was refactored
