@@ -1,0 +1,10 @@
+Sat Sep 12 12:22:35 UTC 2026
+Linux reMarkable 5.4.70-v1.6.3-rm11x #1 SMP PREEMPT Fri Mar 6 07:08:47 UTC 2026 armv7l GNU/Linux
+ 12:22:35 up 2 days,  6:07,  load average: 0.09, 0.19, 0.22
+              total        used        free      shared  buff/cache   available
+Mem:        1027664       66336      856948         752      104380      945984
+Swap:             0           0           0
+STOP_UI=1
+inactive
+ondemand
+0-1

@@ -12,11 +12,12 @@ checkpoint. The existing optimized engine lives on
 
 ## Ceiling
 
-![1.08 tok/s toward a 17.9 tok/s target](assets/tps-progress.svg?v=17.9)
+![1.44 tok/s toward a 17.9 tok/s target](assets/tps-progress.svg?v=1.44)
 
 SmolLM2-135M, Q8, two cores: **2.708 GB/s ÷ 0.151 GB/token ≈ 17.9 tok/s**
 memory-only ceiling. [Calculation](https://github.com/ykumards/unremarkable/blob/optimized/docs/performance.md#memory-roofline-2026-09-10)
-· [FP32 baseline runs](docs/optimizations.md#measured-01-on-the-tablet-2026-09-12).
+· [FP32 baseline runs](docs/optimizations.md#measured-01-on-the-tablet-2026-09-12)
+· [Prefetch runs](docs/optimizations.md#measured-02-on-the-tablet-2026-09-12).
 
 ## Start reading
 
