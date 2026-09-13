@@ -1,7 +1,7 @@
 # Optimization ladder
 
-Each rung gets a branch, a benchmark, and a PR into `main`. Tags `rung-01`
-through `rung-04` preserve the code; compare adjacent tags for the diff:
+Each rung gets a branch, a benchmark, and a PR into `main`. Tags (`rung-01`,
+`rung-02`, …) preserve the code; compare adjacent tags for the diff:
 
 ```sh
 git diff rung-02 rung-03 -- src/
@@ -16,6 +16,7 @@ git diff rung-02 rung-03 -- src/
 | [05: two threads](https://github.com/ykumards/unremarkable/tree/milestone/05-q8-threads) | Split projection rows across cores | Parallel execution | 5.76 |
 | [06: six-op dot](https://github.com/ykumards/unremarkable/tree/milestone/06-q8-six-op) | Pair products before widening | Instructions per Q8 block | 6.32 |
 | [07: batched prefill](https://github.com/ykumards/unremarkable/tree/milestone/07-batched-prefill) | Eight prompt tokens per projection; final logits only | Time to first token: 3.94 → 2.64 s | 6.05¹ |
+| [08: serial steps](https://github.com/ykumards/unremarkable/tree/milestone/08-q8-serial-steps) | RoPE angles once per token; NEON quantize and SwiGLU | Serial work between projections | 6.51 |
 
 ¹ Rung 07 changes prefill. Its matched baseline decoded at 5.92 tok/s; it does
 not establish a decode improvement or regression against rung 06's older run.
@@ -280,6 +281,48 @@ Q8 kernel tests. Batched FP32/Q8 logits and subsequent decode exactly match
 sequential forward passes on host and ARMv7 tablet fixtures, covering prefixes,
 partial chunks, reset, context boundaries, and invalid input. Formatting and
 the ARMv7 build pass. [Data flow and shapes](inference.md#batched-prefill).
+
+## Measured: 08 on the tablet (2026-09-13)
+
+[Raw runs](../runs/rung08-20260913/) · [Profile pair](../runs/rung08-profile-pair-20260913/) ·
+[Accuracy](../runs/accuracy-rung08-20260913/).
+
+Three serial steps between the projections get cheaper:
+
+| Step | Change | Result |
+| --- | --- | --- |
+| RoPE | Angles computed once per token, not in every head of every layer | Bit-identical |
+| Quantizing projection inputs | NEON for full 32-value blocks; `lround` rounding without the library call | Bit-identical |
+| SwiGLU | NEON `exp` (Cephes polynomial) and a refined reciprocal | Within 2e-6 of double precision |
+
+| Build, two threads | Decode runs (tok/s) | Mean | Mean TTFT |
+| --- | --- | ---: | ---: |
+| Rung 07 (`ed558d33`) | 6.036, 5.961 | 5.999 | 2.66 s |
+| **Rung 08** (`9d403c55`) | 6.523, 6.496 | **6.510** | **2.44 s** |
+
+Decode improved **8.5%** in one session: rung 07, rung 08, rung 08, rung 07, with
+the UI active. Profile builds, run back to back the same way, show where:
+
+| Decode, ms/token | Rung 07 | Rung 08 | Change |
+| --- | ---: | ---: | ---: |
+| RoPE | 2.84 | 0.60 | −2.23 |
+| SwiGLU | 4.93 | 2.98 | −1.95 |
+| Quantizing inputs | 7.43 | 3.92 | −3.51 |
+| Worker's rows (kernel unchanged) | 104.03 | 103.99 | −0.04 |
+| **Total** | **166.07** | **154.77** | **−11.30** |
+
+The three steps account for 7.7 ms. The remaining 3.6 ms is spread over the
+caller's projection time and attention, within run-to-run variation.
+
+SwiGLU is no longer bit-identical, so the 64-token text changes (`9f5c16b9`
+against `4ea6b63a`). On the fixed WikiText-2 evaluation the FP32 reference
+perplexity is unchanged (18.7859), and Q8 moves from 18.8994 to 18.8937: 0.03%,
+less than one standard error. Mean KL is 0.0038; the top token agrees at 95.8%.
+
+Validation: kernel tests on host NEON, host scalar, and tablet ARMv7 check exact
+`lround` rounding (including halves and 0.49999997), bit-exact RoPE for positions
+0 to 600 at both bases, and SwiGLU against double precision. The 20 engine tests
+pass, including the published greedy output and the Q8 reference.
 
 ## Memory ceiling
 

@@ -54,6 +54,11 @@ void Engine::prefill_chunk(std::span<const int> tokens) {
     embedding_lookup(model_.embedding, tokens[token], residual + static_cast<size_t>(token) * dim);
   }
   profiler_.lap(Stage::kEmbedding);
+  for (int token = 0; token < count; ++token) {
+    float* cosines = scratch_.rope.data() + static_cast<size_t>(token) * head_size;
+    rope_angles(start + token, head_size, config_.rope_theta, cosines, cosines + head_size / 2);
+  }
+  profiler_.lap(Stage::kRope);
   for (int layer = 0; layer < config_.n_layers; ++layer) {
     const LayerWeights& weights = model_.layers[layer];
     float* key_history = cache_.keys_for_layer(layer);
@@ -71,7 +76,8 @@ void Engine::prefill_chunk(std::span<const int> tokens) {
     project_batch(normalized, weights.value, count, values);
     profiler_.lap(Stage::kQkv);
     for (int token = 0; token < count; ++token) {
-      rope_inplace(start + token, head_size, dim, kv_dim, config_.rope_theta,
+      const float* cosines = scratch_.rope.data() + static_cast<size_t>(token) * head_size;
+      rope_inplace(cosines, cosines + head_size / 2, head_size, dim, kv_dim,
                    query + static_cast<size_t>(token) * dim,
                    keys + static_cast<size_t>(token) * kv_dim);
     }

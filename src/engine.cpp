@@ -48,7 +48,8 @@ Scratch::Scratch(const Config& config)
       quantized(config.format == Format::kQ8_0
                     ? static_cast<size_t>(kMaxPrefillBatch) *
                           q8_blocks(std::max(config.dim, config.hidden_dim))
-                    : 0) {}
+                    : 0),
+      rope(static_cast<size_t>(kMaxPrefillBatch) * config.head_size()) {}
 
 Engine::Engine(const std::string& checkpoint, int context, int threads)
     : model_(checkpoint),
@@ -115,6 +116,11 @@ std::span<float> Engine::forward(int token, int position) {
   profiler_.begin();
   embedding_lookup(model_.embedding, token, residual);
   profiler_.lap(Stage::kEmbedding);
+  const float* cosines = scratch_.rope.data();
+  const float* sines = cosines + head_size / 2;
+  rope_angles(position, head_size, config_.rope_theta, scratch_.rope.data(),
+              scratch_.rope.data() + head_size / 2);
+  profiler_.lap(Stage::kRope);
 
   for (int layer = 0; layer < config_.n_layers; ++layer) {
     const LayerWeights& weights = model_.layers[layer];
@@ -130,7 +136,7 @@ std::span<float> Engine::forward(int token, int position) {
     project(normalized, weights.key, key);
     project(normalized, weights.value, value);
     profiler_.lap(Stage::kQkv);
-    rope_inplace(position, head_size, dim, kv_dim, config_.rope_theta, query, key);
+    rope_inplace(cosines, sines, head_size, dim, kv_dim, query, key);
     profiler_.lap(Stage::kRope);
     causal_attention(query, key_history, value_history, config_.n_heads, config_.n_kv_heads,
                      head_size, config_.seq_len, position, scratch_.attention_scores.data(),

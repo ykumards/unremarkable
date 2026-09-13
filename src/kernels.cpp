@@ -81,6 +81,91 @@ int32_t dot_q8_block(const int8_t* weights, const int8_t* input) {
 #endif
 }
 
+// std::lround without the library call: truncate, then step away from zero at
+// a remainder of one half. The remainder is exact for |value| < 2^23.
+int32_t round_half_away(float value) {
+  int32_t whole = static_cast<int32_t>(value);
+  const float remainder = value - static_cast<float>(whole);
+  if (remainder >= 0.5f) {
+    ++whole;
+  } else if (remainder <= -0.5f) {
+    --whole;
+  }
+  return whole;
+}
+
+void quantize_block_scalar(const float* input, int count, Q8Block& block) {
+  float largest = 0;
+  for (int i = 0; i < count; i++) {
+    largest = std::fmax(largest, std::fabs(input[i]));
+  }
+  block.scale = largest / 127.0f;
+  // A zero group would divide by zero; its values are already exactly zero.
+  const float inverse = largest > 0 ? 127.0f / largest : 0.0f;
+  for (int i = 0; i < count; i++) {
+    block.values[i] =
+        static_cast<int8_t>(std::clamp(round_half_away(input[i] * inverse), -127, 127));
+  }
+  for (int i = count; i < kQuantGroup; i++) {
+    block.values[i] = 0;
+  }
+}
+
+#if defined(__ARM_NEON) && !defined(UNREMARKABLE_SCALAR)
+int32x4_t round_half_away(float32x4_t value) {
+  int32x4_t whole = vcvtq_s32_f32(value);
+  const float32x4_t remainder = vsubq_f32(value, vcvtq_f32_s32(whole));
+  // Comparison masks are -1 where true.
+  whole = vsubq_s32(whole, vreinterpretq_s32_u32(vcgeq_f32(remainder, vdupq_n_f32(0.5f))));
+  whole = vaddq_s32(whole, vreinterpretq_s32_u32(vcleq_f32(remainder, vdupq_n_f32(-0.5f))));
+  return vmaxq_s32(vminq_s32(whole, vdupq_n_s32(127)), vdupq_n_s32(-127));
+}
+
+// Same result as quantize_block_scalar for a full block.
+void quantize_block_neon(const float* input, Q8Block& block) {
+  float32x4_t values[8];
+  float32x4_t largest = vdupq_n_f32(0);
+  for (int i = 0; i < 8; ++i) {
+    values[i] = vld1q_f32(input + 4 * i);
+    largest = vmaxq_f32(largest, vabsq_f32(values[i]));
+  }
+  float32x2_t pair = vpmax_f32(vget_low_f32(largest), vget_high_f32(largest));
+  pair = vpmax_f32(pair, pair);
+  const float maximum = vget_lane_f32(pair, 0);
+  block.scale = maximum / 127.0f;
+  const float inverse = maximum > 0 ? 127.0f / maximum : 0.0f;
+  int16x8_t narrowed[4];
+  for (int i = 0; i < 4; ++i) {
+    narrowed[i] = vcombine_s16(vmovn_s32(round_half_away(vmulq_n_f32(values[2 * i], inverse))),
+                               vmovn_s32(round_half_away(vmulq_n_f32(values[2 * i + 1], inverse))));
+  }
+  vst1q_s8(block.values, vcombine_s8(vmovn_s16(narrowed[0]), vmovn_s16(narrowed[1])));
+  vst1q_s8(block.values + 16, vcombine_s8(vmovn_s16(narrowed[2]), vmovn_s16(narrowed[3])));
+}
+
+// e^x = 2^n * e^r with |r| <= ln(2) / 2; Cephes polynomial for e^r. Inputs are
+// clamped so that 2^n stays a normal float.
+float32x4_t exp_neon(float32x4_t x) {
+  x = vminq_f32(vmaxq_f32(x, vdupq_n_f32(-87.3f)), vdupq_n_f32(88.3f));
+  const float32x4_t scaled = vaddq_f32(vmulq_n_f32(x, 1.44269504088896341f), vdupq_n_f32(0.5f));
+  int32x4_t n = vcvtq_s32_f32(scaled);
+  // Truncation rounds negative values up; step back to the floor.
+  n = vaddq_s32(n, vreinterpretq_s32_u32(vcgtq_f32(vcvtq_f32_s32(n), scaled)));
+  const float32x4_t whole = vcvtq_f32_s32(n);
+  float32x4_t r = vsubq_f32(x, vmulq_n_f32(whole, 0.693359375f));
+  r = vsubq_f32(r, vmulq_n_f32(whole, -2.12194440e-4f));
+  float32x4_t y = vdupq_n_f32(1.9875691500e-4f);
+  y = vaddq_f32(vmulq_f32(y, r), vdupq_n_f32(1.3981999507e-3f));
+  y = vaddq_f32(vmulq_f32(y, r), vdupq_n_f32(8.3334519073e-3f));
+  y = vaddq_f32(vmulq_f32(y, r), vdupq_n_f32(4.1665795894e-2f));
+  y = vaddq_f32(vmulq_f32(y, r), vdupq_n_f32(1.6666665459e-1f));
+  y = vaddq_f32(vmulq_f32(y, r), vdupq_n_f32(5.0000001201e-1f));
+  y = vaddq_f32(vaddq_f32(vmulq_f32(y, vmulq_f32(r, r)), r), vdupq_n_f32(1.0f));
+  const int32x4_t exponent = vshlq_n_s32(vaddq_s32(n, vdupq_n_s32(127)), 23);
+  return vmulq_f32(y, vreinterpretq_f32_s32(exponent));
+}
+#endif
+
 }  // namespace
 
 void rmsnorm(const float* input, const float* weight, int size, float* output) {
@@ -126,21 +211,13 @@ void quantize_q8(const float* input, int size, Q8Block* output) {
   for (int b = 0; b < blocks; b++) {
     const int base = b * kQuantGroup;
     const int count = std::min(kQuantGroup, size - base);
-    float largest = 0;
-    for (int i = 0; i < count; i++) {
-      largest = std::fmax(largest, std::fabs(input[base + i]));
+#if defined(__ARM_NEON) && !defined(UNREMARKABLE_SCALAR)
+    if (count == kQuantGroup) {
+      quantize_block_neon(input + base, output[b]);
+      continue;
     }
-    Q8Block& block = output[b];
-    block.scale = largest / 127.0f;
-    // A zero group would divide by zero; its values are already exactly zero.
-    const float inverse = largest > 0 ? 127.0f / largest : 0.0f;
-    for (int i = 0; i < count; i++) {
-      const long rounded = std::lround(input[base + i] * inverse);
-      block.values[i] = static_cast<int8_t>(std::clamp(rounded, -127L, 127L));
-    }
-    for (int i = count; i < kQuantGroup; i++) {
-      block.values[i] = 0;
-    }
+#endif
+    quantize_block_scalar(input + base, count, output[b]);
   }
 }
 
@@ -204,14 +281,21 @@ void embedding_lookup(Matrix table, int token, float* output) {
   }
 }
 
-void rope_inplace(int position, int head_size, int query_size, int key_size, float theta,
-                  float* query, float* key) {
+void rope_angles(int position, int head_size, float theta, float* cosines, float* sines) {
+  for (int pair = 0; pair < head_size / 2; pair++) {
+    const float frequency = 1.0f / std::pow(theta, 2 * pair / static_cast<float>(head_size));
+    const float angle = position * frequency;
+    cosines[pair] = std::cos(angle);
+    sines[pair] = std::sin(angle);
+  }
+}
+
+void rope_inplace(const float* cosines, const float* sines, int head_size, int query_size,
+                  int key_size, float* query, float* key) {
   for (int i = 0; i < query_size; i += 2) {
-    int head_dim = i % head_size;
-    float frequency = 1.0f / std::pow(theta, head_dim / static_cast<float>(head_size));
-    float angle = position * frequency;
-    float cosine = std::cos(angle);
-    float sine = std::sin(angle);
+    const int pair = (i % head_size) / 2;
+    const float cosine = cosines[pair];
+    const float sine = sines[pair];
     // Query and key share the rotation wherever both have a head component.
     int vectors = i < key_size ? 2 : 1;
     for (int v = 0; v < vectors; v++) {
@@ -258,7 +342,19 @@ void causal_attention(const float* query, const float* key_cache, const float* v
 }
 
 void swiglu_inplace(const float* up, int size, float* gate) {
-  for (int i = 0; i < size; i++) {
+  int i = 0;
+#if defined(__ARM_NEON) && !defined(UNREMARKABLE_SCALAR)
+  for (; i + 4 <= size; i += 4) {
+    const float32x4_t value = vld1q_f32(gate + i);
+    const float32x4_t denominator = vaddq_f32(vdupq_n_f32(1.0f), exp_neon(vnegq_f32(value)));
+    // Two Newton steps refine the 8-bit reciprocal estimate to full precision.
+    float32x4_t reciprocal = vrecpeq_f32(denominator);
+    reciprocal = vmulq_f32(vrecpsq_f32(denominator, reciprocal), reciprocal);
+    reciprocal = vmulq_f32(vrecpsq_f32(denominator, reciprocal), reciprocal);
+    vst1q_f32(gate + i, vmulq_f32(vmulq_f32(value, reciprocal), vld1q_f32(up + i)));
+  }
+#endif
+  for (; i < size; i++) {
     float value = gate[i];
     value *= (1.0f / (1.0f + std::exp(-value)));
     value *= up[i];

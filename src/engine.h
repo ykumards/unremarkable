@@ -39,6 +39,7 @@ struct Scratch {
   std::vector<float> attention_scores;  // [n_heads, context]
   std::vector<float> logits;            // [vocab_size]
   std::vector<Q8Block> quantized;       // projection input, for Q8_0 weights only
+  std::vector<float> rope;              // [batch, head_size]: cosines, then sines
 };
 
 class Engine {

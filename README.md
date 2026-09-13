@@ -14,7 +14,7 @@ TinyStories 15M and SmolLM2-135M-Instruct, with optional tablet UI patches.
 
 ## Ceiling
 
-![6.32 tok/s toward a 17.9 tok/s target](assets/tps-progress.svg?v=6.32)
+![6.51 tok/s toward a 17.9 tok/s target](assets/tps-progress.svg?v=6.51)
 
 SmolLM2-135M, Q8, two cores: **2.708 GB/s ÷ 0.151 GB/token ≈ 17.9 tok/s**
 memory-only ceiling. [Calculation](docs/optimizations.md#memory-ceiling)
@@ -23,7 +23,8 @@ memory-only ceiling. [Calculation](docs/optimizations.md#memory-ceiling)
 · [SIMD runs](docs/optimizations.md#measured-03-on-the-tablet-2026-09-12)
 · [Q8 run](docs/optimizations.md#measured-04-on-the-tablet-2026-09-12)
 · [Two-thread runs](docs/optimizations.md#measured-05-on-the-tablet-2026-09-13)
-· [Six-op runs](docs/optimizations.md#measured-06-on-the-tablet-2026-09-13).
+· [Six-op runs](docs/optimizations.md#measured-06-on-the-tablet-2026-09-13)
+· [Serial-step runs](docs/optimizations.md#measured-08-on-the-tablet-2026-09-13).
 
 Batched prefill cuts the wait for the first token from **3.94 s to 2.64 s** on
 our 26-token prompt. [Runs](docs/optimizations.md#measured-07-on-the-tablet-2026-09-13)
