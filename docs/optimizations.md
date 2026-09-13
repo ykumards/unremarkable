@@ -1,7 +1,7 @@
 # Optimization ladder
 
-Each rung gets a branch, a benchmark, and a PR into `main`. Tags `rung-01`
-through `rung-04` preserve the code; compare adjacent tags for the diff:
+Each rung gets a branch, a benchmark, and a PR into `main`. Tags (`rung-01`,
+`rung-02`, …) preserve the code; compare adjacent tags for the diff:
 
 ```sh
 git diff rung-02 rung-03 -- src/
@@ -16,6 +16,7 @@ git diff rung-02 rung-03 -- src/
 | [05: two threads](https://github.com/ykumards/unremarkable/tree/milestone/05-q8-threads) | Split projection rows across cores | Parallel execution | 5.76 |
 | [06: six-op dot](https://github.com/ykumards/unremarkable/tree/milestone/06-q8-six-op) | Pair products before widening | Instructions per Q8 block | 6.32 |
 | [07: batched prefill](https://github.com/ykumards/unremarkable/tree/milestone/07-batched-prefill) | Eight prompt tokens per projection; final logits only | Time to first token: 3.94 → 2.64 s | 6.05¹ |
+| [08: serial steps](https://github.com/ykumards/unremarkable/tree/milestone/08-q8-serial-steps) | RoPE angles once per token; NEON quantization | Serial work between projections | 6.35 |
 
 ¹ Rung 07 changes prefill. Its matched baseline decoded at 5.92 tok/s; it does
 not establish a decode improvement or regression against rung 06's older run.
@@ -280,6 +281,33 @@ Q8 kernel tests. Batched FP32/Q8 logits and subsequent decode exactly match
 sequential forward passes on host and ARMv7 tablet fixtures, covering prefixes,
 partial chunks, reset, context boundaries, and invalid input. Formatting and
 the ARMv7 build pass. [Data flow and shapes](inference.md#batched-prefill).
+
+## Measured: 08 on the tablet (2026-09-13)
+
+[Raw runs](../runs/rung08-exact-20260913/).
+
+RoPE angles are computed once per token and reused across heads and layers.
+Input quantization uses NEON for full 32-value blocks and rounds halves away
+from zero without calling `lround`. SwiGLU keeps the original `std::exp` loop.
+
+| Build, two threads | Decode runs (tok/s) | Mean ± sample std | Mean TTFT ± sample std |
+| --- | --- | ---: | ---: |
+| Baseline, rung 07 inference | 6.077, 6.089 | 6.083 ± 0.008 | 2.658 ± 0.035 s |
+| **Rung 08** | 6.314, 6.379 | **6.347 ± 0.046** | **2.494 ± 0.011 s** |
+
+Decode improves **4.3%** and TTFT falls **6.2%** in this comparison. All four
+outputs are byte-identical (`4ea6b63a`). SmolLM2-135M Q8, batch 8, two threads,
+context 512, 26-token lighthouse prompt, greedy seed 1, 64 generated tokens.
+One warmup each, then baseline, candidate, candidate, baseline on the same boot
+with the UI active and the `ondemand` governor.
+
+Validation: 20 host tests pass; 19 run under ASan/UBSan (the profile-build test
+is skipped). Kernel tests pass on host NEON, scalar, and ARMv7, including exact
+quantization rounding and RoPE at positions 0..600. Formatting passes.
+
+The earlier 6.51 tok/s result included approximate SwiGLU and is superseded.
+Those [timing](../runs/rung08-20260913/), [profile](../runs/rung08-profile-pair-20260913/),
+and [accuracy](../runs/accuracy-rung08-20260913/) runs remain as historical data.
 
 ## Memory ceiling
 

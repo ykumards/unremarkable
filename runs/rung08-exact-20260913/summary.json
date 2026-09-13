@@ -1,0 +1,31 @@
+{
+  "source_commit": "a4637b9f3b3fbaf4b72693d2a748bdada4d86a4b",
+  "baseline_source_commit": "8f8c26ef1fee6e8fdeb9c645e9305bf7fa0b4fa4",
+  "output_sha256": "4ea6b63a2f2397457b1066150e6e49e40d3102a26513077bf2193e70dcd2026e",
+  "comparisons": {
+    "main": {
+      "runs": [
+        "1-main",
+        "4-main"
+      ],
+      "decode_tok_s_mean": 6.083,
+      "decode_tok_s_sample_std": 0.008485281374238892,
+      "ttft_ms_mean": 2658.0649999999996,
+      "ttft_ms_sample_std": 35.38220911701247,
+      "peak_rss_mib_max": 171.141
+    },
+    "rung08": {
+      "runs": [
+        "2-rung08",
+        "3-rung08"
+      ],
+      "decode_tok_s_mean": 6.3465,
+      "decode_tok_s_sample_std": 0.04596194077712524,
+      "ttft_ms_mean": 2494.1445000000003,
+      "ttft_ms_sample_std": 11.028744466166728,
+      "peak_rss_mib_max": 171.133
+    }
+  },
+  "decode_speedup": 1.0433174420516191,
+  "ttft_reduction_fraction": 0.06166910891945809
+}

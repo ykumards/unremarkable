@@ -15,6 +15,7 @@ void softmax_inplace(float* values, int size);
 void matvec(const float* input, Matrix weight, float* output);
 
 // Quantize [size] values into q8_blocks(size) blocks, symmetric about zero.
+// Halves round away from zero, as std::lround does.
 void quantize_q8(const float* input, int size, Q8Block* output);
 // As matvec for a Q8_0 weight, with the input from quantize_q8. The integer dot
 // within each group is exact; groups accumulate in FP32. Input values must
@@ -31,11 +32,14 @@ void matmul_q8(const Q8Block* input, Matrix weight, int count, int output_stride
 // Copy row `token` of the embedding table into output [table.columns].
 void embedding_lookup(Matrix table, int token, float* output);
 
+// One position's rotation: cosines and sines [head_size / 2] of its RoPE angles.
+// The same table serves every head and every layer. theta is the base frequency.
+void rope_angles(int position, int head_size, float theta, float* cosines, float* sines);
 // Rotate query [query_size] and key [key_size] in place, pairing adjacent
 // components. Head size must be even; both vector sizes must be multiples of it,
-// with key_size <= query_size. theta is the RoPE base frequency.
-void rope_inplace(int position, int head_size, int query_size, int key_size, float theta,
-                  float* query, float* key);
+// with key_size <= query_size.
+void rope_inplace(const float* cosines, const float* sines, int head_size, int query_size,
+                  int key_size, float* query, float* key);
 
 // Attend to cache positions 0..position, including the current token. Query and
 // output are [n_heads][head_size]; caches are [context][n_kv_heads][head_size].
