@@ -9,16 +9,16 @@ A tiny LLM running entirely on a reMarkable 2.
 An inference engine written in C++23, built to learn how to make language models
 run faster on limited hardware. It starts as plain FP32 loops and gets faster one
 measured optimization at a time; each step is tagged (`rung-01`, `rung-02`, …)
-and explained in [the optimization ladder](docs/optimizations.md). Runs
-TinyStories 15M and SmolLM2-135M-Instruct, with optional tablet UI patches.
+and explained in [the optimization ladder](docs/optimizations.md). Runs SmolLM2-135M-Instruct, with optional tablet UI patches.
 
 ## Ceiling
 
 ![7.28 tok/s toward a 17.9 tok/s target](assets/tps-progress.svg?v=7.28)
 
 SmolLM2-135M, Q8, two cores: **2.708 GB/s ÷ 0.151 GB/token ≈ 17.9 tok/s**
-memory-only ceiling. [Calculation](docs/optimizations.md#memory-ceiling)
-· [Benchmarks and changes](docs/optimizations.md).
+memory-only ceiling. 
+- [Calculation](docs/optimizations.md#memory-ceiling)
+- [Benchmarks and changes](docs/optimizations.md)
 
 <a href="docs/optimizations.md">
   <picture>
@@ -28,8 +28,9 @@ memory-only ceiling. [Calculation](docs/optimizations.md#memory-ceiling)
 </a>
 
 Batched prefill cuts the wait for the first token from **3.94 s to 2.64 s** on
-our 26-token prompt. [Runs](docs/optimizations.md#measured-07-on-the-tablet-2026-09-13)
-— the turtle tracks decode speed.
+our 26-token prompt. 
+
+[Runs](docs/optimizations.md#measured-07-on-the-tablet-2026-09-13) -- the turtle tracks decode speed.
 
 ## Code and docs
 
