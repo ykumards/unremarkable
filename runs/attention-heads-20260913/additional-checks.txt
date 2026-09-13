@@ -1,0 +1,11 @@
+c++ -Isrc -D_FILE_OFFSET_BITS=64 -O2 -std=c++23 -Wall -Wextra -Wpedantic -ffp-contract=off tests/worker.cpp src/worker.cpp -lm -pthread -o build/test-worker
+c++ -Isrc -D_FILE_OFFSET_BITS=64 -O1 -g -std=c++23 -fsanitize=address,undefined \
+		-fno-omit-frame-pointer tests/worker.cpp src/worker.cpp -lm -pthread -o build/test-worker-sanitize
+c++ -Isrc -D_FILE_OFFSET_BITS=64 -O2 -std=c++23 -Wall -Wextra -Wpedantic -ffp-contract=off tests/attention.cpp src/kernels.cpp -lm -pthread -o build/test-attention
+c++ -Isrc -D_FILE_OFFSET_BITS=64 -O1 -g -std=c++23 -ffp-contract=off -fsanitize=address,undefined \
+		-fno-omit-frame-pointer tests/attention.cpp src/kernels.cpp -lm -pthread -o build/test-attention-sanitize
+/opt/homebrew/opt/llvm@21/bin/clang-format --dry-run --Werror src/main.cpp src/engine.cpp src/prefill.cpp src/model.cpp src/sampler.cpp src/worker.cpp src/kernels.cpp src/tokenizer.cpp src/engine.h src/model.h src/profile.h src/sampler.h src/worker.h src/kernels.h src/tokenizer.h tests/probe.cpp tests/worker.cpp tests/q8.cpp tests/prefill.cpp tests/attention.cpp tools/perplexity.cpp
+worker: row coverage, repeated jobs, shutdown, and thread limits passed
+worker: row coverage, repeated jobs, shutdown, and thread limits passed
+attention: scalar reference, grouped heads, tails, and causal boundaries passed
+attention: scalar reference, grouped heads, tails, and causal boundaries passed

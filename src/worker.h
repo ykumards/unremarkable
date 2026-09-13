@@ -19,8 +19,9 @@ class RowWorker {
   int threads() const { return threads_; }
 
   // Run disjoint ranges covering [0, rows), then wait for completion.
-  // Calls must not overlap, and work must not throw. Small jobs stay on the caller.
-  void run(int rows, const std::function<void(int, int)>& work);
+  // Calls must not overlap, and work must not throw. Jobs below the threshold
+  // stay on the caller; attention uses 2 because each item is a whole head.
+  void run(int rows, const std::function<void(int, int)>& work, int minimum_parallel_rows = 64);
 
 #ifdef UNREMARKABLE_PROFILE
   // Elapsed seconds, including lock acquisition. Read after run() returns.

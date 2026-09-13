@@ -107,6 +107,10 @@ K/V go directly into their final cache slots. Each layer has its own history;
 attention never reads beyond the current position. Query heads share K/V heads
 in groups of three. The keys are cached after RoPE, while values are unchanged.
 
+Within each head, query–key dots and softmax remain scalar. The square root of
+head width is computed once per kernel call. NEON multiplies and adds four
+value components at a time; each component still accumulates positions in order.
+
 ## Matrix-vector multiplication
 
 The `Matrix` argument carries a read-only pointer, dimensions, and weight format.
@@ -176,8 +180,14 @@ Rungs 01–04 use one thread. Rung 05 adds `-j 2`:
 Both threads read the same weights and input. Each writes separate output rows;
 no matrix or activation copy is needed. Row boundaries include the full Q8 blocks
 and scales. Each dot product keeps its addition order, so logits match `-j 1`.
-Projections with fewer than 64 rows stay on the caller. Quantization, attention,
-norms, RoPE, and sampling also stay on the caller.
+Projections with fewer than 64 rows stay on the caller. Quantization, norms,
+RoPE, and sampling also stay on the caller.
+
+Rung 09 also splits attention heads through `Engine::attend()`: four heads on
+the caller and five on the worker for SmolLM2. They read the same K/V cache and
+write disjoint score and output slices. No reduction between threads is needed.
+The caller waits before the output projection; batched prefill does this for
+each query position in turn. With `-j 1`, all heads stay on the caller.
 
 [worker.cpp](../src/worker.cpp) contains the wake/wait logic. The worker is created
 once per engine and joined before its buffers are destroyed. `-j 1` (the default)

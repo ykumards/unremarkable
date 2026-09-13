@@ -92,6 +92,19 @@ void Engine::project(const float* input, const Matrix& weight, float* output) {
   });
 }
 
+void Engine::attend(const float* query, const float* keys, const float* values, int position,
+                    float* output) {
+  // Split whole heads; their score and output slices do not overlap.
+  worker_.run(
+      config_.n_heads,
+      [&](int begin, int end) {
+        causal_attention(query, keys, values, config_.n_heads, config_.n_kv_heads,
+                         config_.head_size(), config_.seq_len, position, begin, end,
+                         scratch_.attention_scores.data(), output);
+      },
+      2);
+}
+
 std::span<float> Engine::forward(int token, int position) {
   if (token < 0 || token >= config_.vocab_size) {
     throw std::runtime_error("token ID out of range");
@@ -138,9 +151,7 @@ std::span<float> Engine::forward(int token, int position) {
     profiler_.lap(Stage::kQkv);
     rope_inplace(cosines, sines, head_size, dim, kv_dim, query, key);
     profiler_.lap(Stage::kRope);
-    causal_attention(query, key_history, value_history, config_.n_heads, config_.n_kv_heads,
-                     head_size, config_.seq_len, position, scratch_.attention_scores.data(),
-                     attention_output);
+    attend(query, key_history, value_history, position, attention_output);
     profiler_.lap(Stage::kAttention);
     project(attention_output, weights.attention_output, projected);
     profiler_.lap(Stage::kOutput);

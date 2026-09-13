@@ -1,0 +1,1 @@
+kernels: Q8 pairs, mixed lanes, tails, exact rounding, and RoPE table passed

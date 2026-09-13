@@ -1,0 +1,90 @@
+--- a/src/kernels.cpp
++++ b/src/kernels.cpp
+@@ -58,8 +58,8 @@
+ 
+ // Pair products in int16 before widening. Inputs are in [-127, 127], so even
+ // weights of -128 give at most 2 * 128 * 127 = 32512, which fits int16.
+-int32_t dot_q8_block(const int8_t* weights, const int8_t* input) {
+-#if defined(__ARM_NEON) && !defined(UNREMARKABLE_SCALAR)
++#if defined(__ARM_NEON) && !defined(UNREMARKABLE_SCALAR)
++[[gnu::always_inline]] inline int32x4_t dot_q8_lanes(const int8_t* weights, const int8_t* input) {
+   const int8x16_t weights0 = vld1q_s8(weights);
+   const int8x16_t weights1 = vld1q_s8(weights + 16);
+   const int8x16_t input0 = vld1q_s8(input);
+@@ -70,12 +70,40 @@
+   products1 = vmlal_s8(products1, vget_high_s8(weights1), vget_high_s8(input1));
+   int32x4_t sums = vpaddlq_s16(products0);
+   sums = vpadalq_s16(sums, products1);
+-  const int32x2_t pair = vadd_s32(vget_low_s32(sums), vget_high_s32(sums));
+-  return vget_lane_s32(vpadd_s32(pair, pair), 0);
++  return sums;
++}
++#endif
++
++// Apply each block's scale before accumulating across blocks.
++float dot_q8_row(const Q8Block* weights, const Q8Block* input, int blocks) {
++#if defined(__ARM_NEON) && !defined(UNREMARKABLE_SCALAR)
++  float32x4_t sums0 = vdupq_n_f32(0);
++  float32x4_t sums1 = vdupq_n_f32(0);
++  int b = 0;
++  for (; b + 1 < blocks; b += 2) {
++    __builtin_prefetch(reinterpret_cast<const char*>(weights + b) + 256);
++    const float32x4_t partial0 = vcvtq_f32_s32(dot_q8_lanes(weights[b].values, input[b].values));
++    const float32x4_t partial1 =
++        vcvtq_f32_s32(dot_q8_lanes(weights[b + 1].values, input[b + 1].values));
++    sums0 = vaddq_f32(sums0, vmulq_n_f32(partial0, weights[b].scale * input[b].scale));
++    sums1 = vaddq_f32(sums1, vmulq_n_f32(partial1, weights[b + 1].scale * input[b + 1].scale));
++  }
++  if (b < blocks) {
++    const float32x4_t partial = vcvtq_f32_s32(dot_q8_lanes(weights[b].values, input[b].values));
++    sums0 = vaddq_f32(sums0, vmulq_n_f32(partial, weights[b].scale * input[b].scale));
++  }
++  const float32x4_t sums = vaddq_f32(sums0, sums1);
++  const float32x2_t pair = vadd_f32(vget_low_f32(sums), vget_high_f32(sums));
++  return vget_lane_f32(vpadd_f32(pair, pair), 0);
+ #else
+-  int32_t sum = 0;
+-  for (int i = 0; i < kQuantGroup; i++) {
+-    sum += weights[i] * input[i];
++  float sum = 0;
++  for (int b = 0; b < blocks; ++b) {
++    __builtin_prefetch(reinterpret_cast<const char*>(weights + b) + 256);
++    int32_t dot = 0;
++    for (int i = 0; i < kQuantGroup; ++i) {
++      dot += weights[b].values[i] * input[b].values[i];
++    }
++    sum += static_cast<float>(dot) * (weights[b].scale * input[b].scale);
+   }
+   return sum;
+ #endif
+@@ -206,13 +234,7 @@
+   const Q8Block* rows = reinterpret_cast<const Q8Block*>(weight.data);
+   for (int row = 0; row < weight.rows; ++row) {
+     const Q8Block* groups = rows + static_cast<size_t>(row) * blocks;
+-    float sum = 0;
+-    for (int b = 0; b < blocks; ++b) {
+-      __builtin_prefetch(reinterpret_cast<const char*>(groups + b) + 256);
+-      const int32_t dot = dot_q8_block(groups[b].values, input[b].values);
+-      sum += static_cast<float>(dot) * (groups[b].scale * input[b].scale);
+-    }
+-    output[row] = sum;
++    output[row] = dot_q8_row(groups, input, blocks);
+   }
+ }
+ 
+@@ -235,13 +257,8 @@
+     const Q8Block* weights = rows + static_cast<size_t>(row) * blocks;
+     for (int token = 0; token < count; ++token) {
+       const Q8Block* values = input + static_cast<size_t>(token) * blocks;
+-      float sum = 0;
+-      for (int b = 0; b < blocks; ++b) {
+-        __builtin_prefetch(reinterpret_cast<const char*>(weights + b) + 256);
+-        const int32_t dot = dot_q8_block(weights[b].values, values[b].values);
+-        sum += static_cast<float>(dot) * (weights[b].scale * values[b].scale);
+-      }
+-      output[static_cast<size_t>(token) * output_stride + row] = sum;
++      output[static_cast<size_t>(token) * output_stride + row] =
++          dot_q8_row(weights, values, blocks);
+     }
+   }
+ }

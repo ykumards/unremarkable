@@ -1,0 +1,1 @@
+{"prefill_batch":8,"threads":2,"prompt_tokens":26,"generated_tokens":192,"decode_tokens":191,"context":512,"stop":"limit","load_ms":568.190,"prefill_ms":2480.512,"ttft_ms":2481.919,"decode_ms":34885.467,"decode_tok_s":5.475,"generation_ms":37397.991,"weights_mib":144.415,"kv_cache_mib":22.500,"peak_rss_mib":171.117}

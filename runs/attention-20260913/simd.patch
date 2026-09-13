@@ -1,0 +1,40 @@
+--- a/src/kernels.cpp
++++ b/src/kernels.cpp
+@@ -293,17 +293,15 @@
+                       float* scores, float* output) {
+   const int kv_dim = n_kv_heads * head_size;
+   const int queries_per_kv_head = n_heads / n_kv_heads;
++  const float score_divisor = std::sqrt(static_cast<float>(head_size));
+   for (int h = 0; h < n_heads; h++) {
+     const float* q = query + h * head_size;
+     float* head_scores = scores + static_cast<size_t>(h) * context;
+     const int kv_head_offset = (h / queries_per_kv_head) * head_size;
+     for (int t = 0; t <= position; t++) {
+       const float* k = key_cache + static_cast<size_t>(t) * kv_dim + kv_head_offset;
+-      float score = 0.0f;
+-      for (int i = 0; i < head_size; i++) {
+-        score += q[i] * k[i];
+-      }
+-      score /= std::sqrt(static_cast<float>(head_size));
++      float score = dot_fp32(k, q, head_size);
++      score /= score_divisor;
+       head_scores[t] = score;
+     }
+ 
+@@ -314,7 +312,15 @@
+     for (int t = 0; t <= position; t++) {
+       const float* v = value_cache + static_cast<size_t>(t) * kv_dim + kv_head_offset;
+       float probability = head_scores[t];
+-      for (int i = 0; i < head_size; i++) {
++      int i = 0;
++#if defined(__ARM_NEON) && !defined(UNREMARKABLE_SCALAR)
++      // Four independent output components; each still adds positions in order.
++      for (; i <= head_size - 4; i += 4) {
++        const float32x4_t product = vmulq_n_f32(vld1q_f32(v + i), probability);
++        vst1q_f32(head_output + i, vaddq_f32(vld1q_f32(head_output + i), product));
++      }
++#endif
++      for (; i < head_size; i++) {
+         head_output[i] += probability * v[i];
+       }
+     }

@@ -1,0 +1,11 @@
+--- a/src/kernels.cpp
++++ b/src/kernels.cpp
+@@ -58,7 +58,7 @@
+ 
+ // Pair products in int16 before widening. Inputs are in [-127, 127], so even
+ // weights of -128 give at most 2 * 128 * 127 = 32512, which fits int16.
+-int32_t dot_q8_block(const int8_t* weights, const int8_t* input) {
++[[gnu::always_inline]] inline int32_t dot_q8_block(const int8_t* weights, const int8_t* input) {
+ #if defined(__ARM_NEON) && !defined(UNREMARKABLE_SCALAR)
+   const int8x16_t weights0 = vld1q_s8(weights);
+   const int8x16_t weights1 = vld1q_s8(weights + 16);

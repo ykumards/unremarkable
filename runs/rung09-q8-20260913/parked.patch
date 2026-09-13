@@ -1,0 +1,111 @@
+diff --git a/README.md b/README.md
+index 53234e8..ff0ecb8 100644
+--- a/README.md
++++ b/README.md
+@@ -14,7 +14,7 @@ TinyStories 15M and SmolLM2-135M-Instruct, with optional tablet UI patches.
+ 
+ ## Ceiling
+ 
+-![6.35 tok/s toward a 17.9 tok/s target](assets/tps-progress.svg?v=6.35)
++![6.49 tok/s toward a 17.9 tok/s target](assets/tps-progress.svg?v=6.49)
+ 
+ SmolLM2-135M, Q8, two cores: **2.708 GB/s ÷ 0.151 GB/token ≈ 17.9 tok/s**
+ memory-only ceiling. [Calculation](docs/optimizations.md#memory-ceiling)
+@@ -24,7 +24,8 @@ memory-only ceiling. [Calculation](docs/optimizations.md#memory-ceiling)
+ · [Q8 run](docs/optimizations.md#measured-04-on-the-tablet-2026-09-12)
+ · [Two-thread runs](docs/optimizations.md#measured-05-on-the-tablet-2026-09-13)
+ · [Six-op runs](docs/optimizations.md#measured-06-on-the-tablet-2026-09-13)
+-· [Serial-step runs](docs/optimizations.md#measured-08-on-the-tablet-2026-09-13).
++· [Serial-step runs](docs/optimizations.md#measured-08-on-the-tablet-2026-09-13)
++· [Inline Q8 runs](docs/optimizations.md#measured-09-on-the-tablet-2026-09-13).
+ 
+ Batched prefill cuts the wait for the first token from **3.94 s to 2.64 s** on
+ our 26-token prompt. [Runs](docs/optimizations.md#measured-07-on-the-tablet-2026-09-13)
+diff --git a/assets/tps-progress.svg b/assets/tps-progress.svg
+index cbe06e2..ee192b8 100644
+--- a/assets/tps-progress.svg
++++ b/assets/tps-progress.svg
+@@ -1,5 +1,5 @@
+ <svg xmlns="http://www.w3.org/2000/svg" width="640" height="110" viewBox="0 0 640 110" role="img" aria-labelledby="title desc">
+-  <title id="title">6.35 tok/s toward 17.9 tok/s</title>
++  <title id="title">6.49 tok/s toward 17.9 tok/s</title>
+   <desc id="desc">The tortoise faces right, from Q8 on two cores toward the memory-only ceiling.</desc>
+   <style>
+     text { font-family: system-ui, -apple-system, sans-serif; fill: #57606a; font-size: 14px; }
+@@ -9,13 +9,13 @@
+       .track { stroke: #484f58; }
+     }
+   </style>
+-  <!-- Track: x = 28 + (speed / 17.9) * 584; 6.35 tok/s is x = 235. -->
++  <!-- Track: x = 28 + (speed / 17.9) * 584; 6.49 tok/s is x = 240. -->
+   <path class="track" d="M28 74 H612" fill="none" stroke-width="6" stroke-linecap="round"/>
+-  <path d="M28 74 H235" fill="none" stroke="#d88727" stroke-width="6" stroke-linecap="round"/>
+-  <text x="235" y="21" text-anchor="middle" font-weight="600">6.35 tok/s</text>
++  <path d="M28 74 H240" fill="none" stroke="#d88727" stroke-width="6" stroke-linecap="round"/>
++  <text x="240" y="21" text-anchor="middle" font-weight="600">6.49 tok/s</text>
+   <!-- Tortoise: tail at left, raised head and eye at right. Drawn at x = 220,
+        translated to sit on the current mark. -->
+-  <g transform="translate(15,0)">
++  <g transform="translate(20,0)">
+   <g stroke="#385b36" stroke-width="2" stroke-linejoin="round">
+     <path d="M190 58 L178 53 L185 63 Z" fill="#a3bc6c"/>
+     <path d="M195 58 L192 69 Q198 73 204 68 L207 59 M226 58 L230 69 Q237 72 241 67 L237 57" fill="#a3bc6c"/>
+diff --git a/docs/optimizations.md b/docs/optimizations.md
+index b8bdc9b..7220512 100644
+--- a/docs/optimizations.md
++++ b/docs/optimizations.md
+@@ -17,6 +17,7 @@ git diff rung-02 rung-03 -- src/
+ | [06: six-op dot](https://github.com/ykumards/unremarkable/tree/milestone/06-q8-six-op) | Pair products before widening | Instructions per Q8 block | 6.32 |
+ | [07: batched prefill](https://github.com/ykumards/unremarkable/tree/milestone/07-batched-prefill) | Eight prompt tokens per projection; final logits only | Time to first token: 3.94 → 2.64 s | 6.05¹ |
+ | [08: serial steps](https://github.com/ykumards/unremarkable/tree/milestone/08-q8-serial-steps) | RoPE angles once per token; NEON quantization | Serial work between projections | 6.35 |
++| 09: inline Q8 dot (unmerged) | Inline the 32-value helper | Function calls per block | 6.49 |
+ 
+ ¹ Rung 07 changes prefill. Its matched baseline decoded at 5.92 tok/s; it does
+ not establish a decode improvement or regression against rung 06's older run.
+@@ -309,6 +310,33 @@ The earlier 6.51 tok/s result included approximate SwiGLU and is superseded.
+ Those [timing](../runs/rung08-20260913/), [profile](../runs/rung08-profile-pair-20260913/),
+ and [accuracy](../runs/accuracy-rung08-20260913/) runs remain as historical data.
+ 
++## Measured: 09 on the tablet (2026-09-13)
++
++[Raw runs and experimental patches](../runs/rung09-q8-20260913/).
++
++The ARMv7 compiler was calling `dot_q8_block()` for every 32 values. Adding
++`[[gnu::always_inline]] inline` removes that call and the transfer of its integer
++result through a CPU register. Arithmetic and addition order stay unchanged.
++
++| Build | Decode tok/s ± sample std | TTFT ± sample std |
++| --- | ---: | ---: |
++| Baseline, rung 08 | 6.278 ± 0.016 | 2.535 ± 0.069 s |
++| **Inline helper (retained)** | **6.490 ± 0.081** | 2.539 ± 0.033 s |
++| Vector accumulation (experiment only) | 6.443 ± 0.030 | 2.272 ± 0.008 s |
++
++Inlining improves decode **3.4%** in this short comparison. Two runs per build,
++after one warmup each: baseline, inline, vector, vector, inline, baseline.
++SmolLM2-135M Q8, batch 8, two threads, context 512, the 26-token lighthouse
++prompt, greedy seed 1, 64 generated tokens. UI active, `ondemand` governor.
++
++Vector accumulation reduces FP32 lanes once per row instead of reducing integer
++lanes per block. It cuts TTFT by **10.4%**, but changes rounding: host logits
++differ by up to 1.09 at eight tested positions. All six tablet texts match;
++that is not an accuracy evaluation. The patch is saved, but not retained.
++
++The inline build matches baseline host logits exactly at those positions.
++Host tests, ASan/UBSan, formatting, and tablet Q8 kernel tests pass.
++
+ ## Memory ceiling
+ 
+ Sequential reads measured on the tablet on 2026-09-10: a 144 MiB buffer,
+diff --git a/src/kernels.cpp b/src/kernels.cpp
+index 6546d24..c1ec0b3 100644
+--- a/src/kernels.cpp
++++ b/src/kernels.cpp
+@@ -58,7 +58,7 @@ float dot_fp32(const float* weights, const float* input, int size) {
+ 
+ // Pair products in int16 before widening. Inputs are in [-127, 127], so even
+ // weights of -128 give at most 2 * 128 * 127 = 32512, which fits int16.
+-int32_t dot_q8_block(const int8_t* weights, const int8_t* input) {
++[[gnu::always_inline]] inline int32_t dot_q8_block(const int8_t* weights, const int8_t* input) {
+ #if defined(__ARM_NEON) && !defined(UNREMARKABLE_SCALAR)
+   const int8x16_t weights0 = vld1q_s8(weights);
+   const int8x16_t weights1 = vld1q_s8(weights + 16);

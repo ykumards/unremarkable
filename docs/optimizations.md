@@ -17,6 +17,7 @@ git diff rung-02 rung-03 -- src/
 | [06: six-op dot](https://github.com/ykumards/unremarkable/tree/milestone/06-q8-six-op) | Pair products before widening | Instructions per Q8 block | 6.32 |
 | [07: batched prefill](https://github.com/ykumards/unremarkable/tree/milestone/07-batched-prefill) | Eight prompt tokens per projection; final logits only | Time to first token: 3.94 → 2.64 s | 6.05¹ |
 | [08: serial steps](https://github.com/ykumards/unremarkable/tree/milestone/08-q8-serial-steps) | RoPE angles once per token; NEON quantization | Serial work between projections | 6.35 |
+| [09: attention](https://github.com/ykumards/unremarkable/tree/milestone/09-attention) | NEON weighted sum; heads split across cores | Attention over cached tokens | 6.95 |
 
 ¹ Rung 07 changes prefill. Its matched baseline decoded at 5.92 tok/s; it does
 not establish a decode improvement or regression against rung 06's older run.
@@ -308,6 +309,42 @@ quantization rounding and RoPE at positions 0..600. Formatting passes.
 The earlier 6.51 tok/s result included approximate SwiGLU and is superseded.
 Those [timing](../runs/rung08-20260913/), [profile](../runs/rung08-profile-pair-20260913/),
 and [accuracy](../runs/accuracy-rung08-20260913/) runs remain as historical data.
+
+## Measured: 09 on the tablet (2026-09-13)
+
+[Raw runs and patches](../runs/attention-heads-20260913/).
+
+NEON computes four components of the weighted value sum at once. Each keeps
+its original token order. The square root moves outside the loops, and the
+existing worker takes five of SmolLM2's nine heads. Query–key dots and softmax
+stay scalar; no cache layout or Q8 kernel changes.
+
+| Build | Decode tok/s ± sample std | TTFT ± sample std |
+| --- | ---: | ---: |
+| Baseline, rung 08 | 6.299 ± 0.032 | 2.487 ± 0.003 s |
+| NEON weighted sum + hoisted square root | 6.519 ± 0.246 | 2.475 ± 0.038 s |
+| **Plus heads split across cores** | **6.949 ± 0.045** | **2.453 ± 0.016 s** |
+
+Decode improves **10.3%** against the matched baseline. Rung 08 previously
+recorded 6.35 tok/s; its fresh baseline here is 6.30. Three runs per build,
+after a warmup each. SmolLM2-135M Q8, batch 8, two threads, context 512,
+26-token lighthouse prompt, greedy seed 1, 64 generated tokens. UI active,
+`ondemand` governor. All nine texts match. The slow single-core attention run
+is included; no samples were dropped.
+
+With the same prompt and a [192-token generation](../runs/attention-long-20260913/),
+decode rises from **5.491 ± 0.022 to 6.514 ± 0.008 tok/s (+18.6%)**. Two runs
+per build, 191 timed decode steps each; all four texts match. This longer history
+increases attention's share of the work. The turtle uses the 64-token benchmark.
+
+An [earlier comparison](../runs/attention-20260913/) put the single-core variant
+at 6.698 versus 6.365 tok/s baseline. SIMD query–key dots reached 6.722, but
+changed logits and generated text. That patch and the earlier
+[Q8 accumulation experiments](../runs/rung09-q8-20260913/) are parked.
+
+Host tests, ASan/UBSan, formatting, and ARMv7 attention tests pass. The retained
+build matches baseline host logits exactly at eight checked positions. Tests
+cover grouped heads, split ranges, SIMD tails, and causal boundaries.
 
 ## Memory ceiling
 

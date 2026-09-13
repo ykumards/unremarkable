@@ -9,14 +9,17 @@ int main() {
   for (int threads : {1, 2}) {
     for (int repeat = 0; repeat < 4; ++repeat) {
       unremarkable::RowWorker worker(threads);
-      for (int count : {0, 1, 63, 64, 65, 127, 512}) {
+      for (int count : {0, 1, 2, 9, 63, 64, 65, 127, 512}) {
         std::vector<std::atomic<int>> hits(count);
         for (int job = 0; job < 100; ++job) {
-          worker.run(count, [&](int begin, int end) {
-            for (int row = begin; row < end; ++row) {
-              ++hits.at(row);
-            }
-          });
+          worker.run(
+              count,
+              [&](int begin, int end) {
+                for (int row = begin; row < end; ++row) {
+                  ++hits.at(row);
+                }
+              },
+              job % 2 == 0 ? 64 : 2);
           for (const auto& hit : hits) {
             if (hit.load() != job + 1) {
               std::fputs("row skipped, duplicated, or returned before completion\n", stderr);

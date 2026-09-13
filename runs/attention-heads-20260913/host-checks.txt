@@ -1,0 +1,99 @@
+c++ -Isrc -D_FILE_OFFSET_BITS=64 -O2 -std=c++23 -Wall -Wextra -Wpedantic -ffp-contract=off src/main.cpp src/engine.cpp src/prefill.cpp src/model.cpp src/sampler.cpp src/worker.cpp src/kernels.cpp src/tokenizer.cpp  -lm -pthread -o build/unremarkable
+c++ -Isrc -D_FILE_OFFSET_BITS=64 -DUNREMARKABLE_PROFILE -O2 -std=c++23 -Wall -Wextra -Wpedantic -ffp-contract=off src/main.cpp src/engine.cpp src/prefill.cpp src/model.cpp src/sampler.cpp src/worker.cpp src/kernels.cpp src/tokenizer.cpp  -lm -pthread -o build/unremarkable-profile
+c++ -Isrc -D_FILE_OFFSET_BITS=64 -O2 -std=c++23 -Wall -Wextra -Wpedantic -ffp-contract=off tests/probe.cpp src/engine.cpp src/prefill.cpp src/model.cpp src/sampler.cpp src/worker.cpp src/kernels.cpp src/tokenizer.cpp  -lm -pthread -o build/probe
+c++ -Isrc -D_FILE_OFFSET_BITS=64 -O2 -std=c++23 -Wall -Wextra -Wpedantic -ffp-contract=off tests/prefill.cpp src/engine.cpp src/prefill.cpp src/model.cpp src/sampler.cpp src/worker.cpp src/kernels.cpp src/tokenizer.cpp -lm -pthread -o build/test-prefill
+c++ -Isrc -D_FILE_OFFSET_BITS=64 -O2 -std=c++23 -Wall -Wextra -Wpedantic -ffp-contract=off tests/worker.cpp src/worker.cpp -lm -pthread -o build/test-worker
+c++ -Isrc -D_FILE_OFFSET_BITS=64 -O2 -std=c++23 -Wall -Wextra -Wpedantic -ffp-contract=off tests/q8.cpp src/kernels.cpp -lm -pthread -o build/test-q8
+c++ -Isrc -D_FILE_OFFSET_BITS=64 -O2 -std=c++23 -Wall -Wextra -Wpedantic -ffp-contract=off -DUNREMARKABLE_SCALAR tests/q8.cpp src/kernels.cpp -lm -pthread -o build/test-q8-scalar
+c++ -Isrc -D_FILE_OFFSET_BITS=64 -O2 -std=c++23 -Wall -Wextra -Wpedantic -ffp-contract=off tests/attention.cpp src/kernels.cpp -lm -pthread -o build/test-attention
+c++ -Isrc -D_FILE_OFFSET_BITS=64 -O2 -std=c++23 -Wall -Wextra -Wpedantic -ffp-contract=off -DUNREMARKABLE_SCALAR tests/attention.cpp src/kernels.cpp -lm -pthread -o build/test-attention-scalar
+./build/test-attention
+attention: scalar reference, grouped heads, tails, and causal boundaries passed
+./build/test-attention-scalar
+attention: scalar reference, grouped heads, tails, and causal boundaries passed
+./build/test-q8
+kernels: Q8 pairs, mixed lanes, tails, exact rounding, and RoPE table passed
+./build/test-q8-scalar
+kernels: Q8 pairs, mixed lanes, tails, exact rounding, and RoPE table passed
+./build/test-worker
+worker: row coverage, repeated jobs, shutdown, and thread limits passed
+python3 tests/test_engine.py --binary build/unremarkable --probe build/probe --prefill build/test-prefill \
+		--profile-binary build/unremarkable-profile
+test_batched_prefill_matches_sequential (__main__.EngineTests.test_batched_prefill_matches_sequential) ... ok
+test_bos_and_eos_stop_without_output (__main__.EngineTests.test_bos_and_eos_stop_without_output) ... ok
+test_byte_level_tokenizer_matches_reference (__main__.EngineTests.test_byte_level_tokenizer_matches_reference) ... ok
+test_byte_level_tokenizer_refuses_to_forge_markers (__main__.EngineTests.test_byte_level_tokenizer_refuses_to_forge_markers)
+Prompt text must never encode to a ChatML role marker. ... ok
+test_context_cap_preserves_output (__main__.EngineTests.test_context_cap_preserves_output) ... ok
+test_context_exhaustion (__main__.EngineTests.test_context_exhaustion) ... ok
+test_forward_logits_against_independent_reference (__main__.EngineTests.test_forward_logits_against_independent_reference) ... ok
+test_prefill_modes_preserve_generation (__main__.EngineTests.test_prefill_modes_preserve_generation) ... ok
+test_profile_build (__main__.EngineTests.test_profile_build)
+A profile build computes the same tokens and accounts for its time. ... ok
+test_prompt_and_new_token_limit (__main__.EngineTests.test_prompt_and_new_token_limit) ... ok
+test_published_greedy_output (__main__.EngineTests.test_published_greedy_output) ... ok
+test_quantized_checkpoint_matches_reference (__main__.EngineTests.test_quantized_checkpoint_matches_reference)
+Q8_0 rows carry inline scales, so every weight stride changes with them. ... ok
+test_rejects_bad_arguments (__main__.EngineTests.test_rejects_bad_arguments) ... ok
+test_rejects_bad_model_files (__main__.EngineTests.test_rejects_bad_model_files) ... ok
+test_rejects_bad_tokenizer (__main__.EngineTests.test_rejects_bad_tokenizer) ... ok
+test_sampling_is_repeatable (__main__.EngineTests.test_sampling_is_repeatable) ... ok
+test_tagged_format_and_rope_base (__main__.EngineTests.test_tagged_format_and_rope_base)
+The tagged header carries its own RoPE base and drops the legacy tables. ... ok
+test_tagged_format_rejects_bad_headers (__main__.EngineTests.test_tagged_format_rejects_bad_headers) ... ok
+test_threads_preserve_logits_and_reset (__main__.EngineTests.test_threads_preserve_logits_and_reset) ... ok
+test_unicode_and_byte_fallback (__main__.EngineTests.test_unicode_and_byte_fallback) ... ok
+
+----------------------------------------------------------------------
+Ran 20 tests in 2.799s
+
+OK
+c++ -Isrc -D_FILE_OFFSET_BITS=64 -O1 -g -std=c++23 -Wall -Wextra -ffp-contract=off \
+		-fsanitize=address,undefined -fno-omit-frame-pointer src/main.cpp src/engine.cpp src/prefill.cpp src/model.cpp src/sampler.cpp src/worker.cpp src/kernels.cpp src/tokenizer.cpp -lm -pthread -o build/unremarkable-sanitize
+c++ -Isrc -D_FILE_OFFSET_BITS=64 -O1 -g -std=c++23 -Wall -Wextra -ffp-contract=off \
+		-fsanitize=address,undefined -fno-omit-frame-pointer tests/probe.cpp src/engine.cpp src/prefill.cpp src/model.cpp src/sampler.cpp src/worker.cpp src/kernels.cpp src/tokenizer.cpp -lm -pthread -o build/probe-sanitize
+c++ -Isrc -D_FILE_OFFSET_BITS=64 -O1 -g -std=c++23 -ffp-contract=off -fsanitize=address,undefined \
+		-fno-omit-frame-pointer tests/prefill.cpp src/engine.cpp src/prefill.cpp src/model.cpp src/sampler.cpp src/worker.cpp src/kernels.cpp src/tokenizer.cpp -lm -pthread -o build/test-prefill-sanitize
+c++ -Isrc -D_FILE_OFFSET_BITS=64 -O1 -g -std=c++23 -fsanitize=address,undefined \
+		-fno-omit-frame-pointer tests/worker.cpp src/worker.cpp -lm -pthread -o build/test-worker-sanitize
+c++ -Isrc -D_FILE_OFFSET_BITS=64 -O1 -g -std=c++23 -ffp-contract=off -fsanitize=address,undefined \
+		-fno-omit-frame-pointer tests/q8.cpp src/kernels.cpp -lm -pthread -o build/test-q8-sanitize
+c++ -Isrc -D_FILE_OFFSET_BITS=64 -O1 -g -std=c++23 -ffp-contract=off -fsanitize=address,undefined \
+		-fno-omit-frame-pointer tests/attention.cpp src/kernels.cpp -lm -pthread -o build/test-attention-sanitize
+./build/test-attention-sanitize
+attention: scalar reference, grouped heads, tails, and causal boundaries passed
+./build/test-q8-sanitize
+kernels: Q8 pairs, mixed lanes, tails, exact rounding, and RoPE table passed
+./build/test-worker-sanitize
+worker: row coverage, repeated jobs, shutdown, and thread limits passed
+python3 tests/test_engine.py --binary build/unremarkable-sanitize --probe build/probe-sanitize --prefill build/test-prefill-sanitize
+test_batched_prefill_matches_sequential (__main__.EngineTests.test_batched_prefill_matches_sequential) ... ok
+test_bos_and_eos_stop_without_output (__main__.EngineTests.test_bos_and_eos_stop_without_output) ... ok
+test_byte_level_tokenizer_matches_reference (__main__.EngineTests.test_byte_level_tokenizer_matches_reference) ... ok
+test_byte_level_tokenizer_refuses_to_forge_markers (__main__.EngineTests.test_byte_level_tokenizer_refuses_to_forge_markers)
+Prompt text must never encode to a ChatML role marker. ... ok
+test_context_cap_preserves_output (__main__.EngineTests.test_context_cap_preserves_output) ... ok
+test_context_exhaustion (__main__.EngineTests.test_context_exhaustion) ... ok
+test_forward_logits_against_independent_reference (__main__.EngineTests.test_forward_logits_against_independent_reference) ... ok
+test_prefill_modes_preserve_generation (__main__.EngineTests.test_prefill_modes_preserve_generation) ... ok
+test_profile_build (__main__.EngineTests.test_profile_build)
+A profile build computes the same tokens and accounts for its time. ... skipped 'no --profile-binary'
+test_prompt_and_new_token_limit (__main__.EngineTests.test_prompt_and_new_token_limit) ... ok
+test_published_greedy_output (__main__.EngineTests.test_published_greedy_output) ... ok
+test_quantized_checkpoint_matches_reference (__main__.EngineTests.test_quantized_checkpoint_matches_reference)
+Q8_0 rows carry inline scales, so every weight stride changes with them. ... ok
+test_rejects_bad_arguments (__main__.EngineTests.test_rejects_bad_arguments) ... ok
+test_rejects_bad_model_files (__main__.EngineTests.test_rejects_bad_model_files) ... ok
+test_rejects_bad_tokenizer (__main__.EngineTests.test_rejects_bad_tokenizer) ... ok
+test_sampling_is_repeatable (__main__.EngineTests.test_sampling_is_repeatable) ... ok
+test_tagged_format_and_rope_base (__main__.EngineTests.test_tagged_format_and_rope_base)
+The tagged header carries its own RoPE base and drops the legacy tables. ... ok
+test_tagged_format_rejects_bad_headers (__main__.EngineTests.test_tagged_format_rejects_bad_headers) ... ok
+test_threads_preserve_logits_and_reset (__main__.EngineTests.test_threads_preserve_logits_and_reset) ... ok
+test_unicode_and_byte_fallback (__main__.EngineTests.test_unicode_and_byte_fallback) ... ok
+
+----------------------------------------------------------------------
+Ran 20 tests in 7.078s
+
+OK (skipped=1)
+/opt/homebrew/opt/llvm@21/bin/clang-format --dry-run --Werror src/main.cpp src/engine.cpp src/prefill.cpp src/model.cpp src/sampler.cpp src/worker.cpp src/kernels.cpp src/tokenizer.cpp src/engine.h src/model.h src/profile.h src/sampler.h src/worker.h src/kernels.h src/tokenizer.h tests/probe.cpp tests/worker.cpp tests/q8.cpp tests/prefill.cpp tests/attention.cpp tools/perplexity.cpp
