@@ -85,9 +85,7 @@ void Engine::prefill_chunk(std::span<const int> tokens) {
     for (int token = 0; token < count; ++token) {
       const size_t offset = static_cast<size_t>(token) * dim;
       // All K/V slots exist, but each query only reads through its own position.
-      causal_attention(query + offset, key_history, value_history, config_.n_heads,
-                       config_.n_kv_heads, head_size, config_.seq_len, start + token,
-                       scratch_.attention_scores.data(), attention_output + offset);
+      attend(query + offset, key_history, value_history, start + token, attention_output + offset);
     }
     profiler_.lap(Stage::kAttention);
     project_batch(attention_output, weights.attention_output, count, projected);

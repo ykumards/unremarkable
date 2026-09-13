@@ -85,17 +85,30 @@ build/probe-sanitize: tests/probe.cpp $(CORE) $(HEADERS) Makefile | build
 	$(CXX) $(CPPFLAGS) -O1 -g -std=c++23 -Wall -Wextra -ffp-contract=off \
 		-fsanitize=address,undefined -fno-omit-frame-pointer tests/probe.cpp $(CORE) $(LDLIBS) -o $@
 
-test: build/unremarkable build/unremarkable-profile build/probe build/test-prefill build/test-worker build/test-q8 build/test-q8-scalar
+test: build/unremarkable build/unremarkable-profile build/probe build/test-prefill build/test-worker build/test-q8 build/test-q8-scalar build/test-attention build/test-attention-scalar
+	./build/test-attention
+	./build/test-attention-scalar
 	./build/test-q8
 	./build/test-q8-scalar
 	./build/test-worker
 	$(PYTHON) tests/test_engine.py --binary build/unremarkable --probe build/probe --prefill build/test-prefill \
 		--profile-binary build/unremarkable-profile
 
-sanitize: build/unremarkable-sanitize build/probe-sanitize build/test-prefill-sanitize build/test-worker-sanitize build/test-q8-sanitize
+sanitize: build/unremarkable-sanitize build/probe-sanitize build/test-prefill-sanitize build/test-worker-sanitize build/test-q8-sanitize build/test-attention-sanitize
+	./build/test-attention-sanitize
 	./build/test-q8-sanitize
 	./build/test-worker-sanitize
 	$(PYTHON) tests/test_engine.py --binary build/unremarkable-sanitize --probe build/probe-sanitize --prefill build/test-prefill-sanitize
+
+build/test-attention: tests/attention.cpp src/kernels.cpp src/kernels.h Makefile | build
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) tests/attention.cpp src/kernels.cpp $(LDLIBS) -o $@
+
+build/test-attention-scalar: tests/attention.cpp src/kernels.cpp src/kernels.h Makefile | build
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -DUNREMARKABLE_SCALAR tests/attention.cpp src/kernels.cpp $(LDLIBS) -o $@
+
+build/test-attention-sanitize: tests/attention.cpp src/kernels.cpp src/kernels.h Makefile | build
+	$(CXX) $(CPPFLAGS) -O1 -g -std=c++23 -ffp-contract=off -fsanitize=address,undefined \
+		-fno-omit-frame-pointer tests/attention.cpp src/kernels.cpp $(LDLIBS) -o $@
 
 build/test-worker: tests/worker.cpp src/worker.cpp src/worker.h Makefile | build
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) tests/worker.cpp src/worker.cpp $(LDLIBS) -o $@
@@ -126,6 +139,6 @@ check: test
 check-sanitize: sanitize
 CLANG_FORMAT ?= $(firstword $(shell command -v clang-format 2>/dev/null) $(wildcard /opt/homebrew/opt/llvm@21/bin/clang-format /opt/homebrew/opt/llvm/bin/clang-format) clang-format)
 format:
-	$(CLANG_FORMAT) -i $(SOURCES) $(HEADERS) tests/probe.cpp tests/worker.cpp tests/q8.cpp tests/prefill.cpp tools/perplexity.cpp
+	$(CLANG_FORMAT) -i $(SOURCES) $(HEADERS) tests/probe.cpp tests/worker.cpp tests/q8.cpp tests/prefill.cpp tests/attention.cpp tools/perplexity.cpp
 check-format:
-	$(CLANG_FORMAT) --dry-run --Werror $(SOURCES) $(HEADERS) tests/probe.cpp tests/worker.cpp tests/q8.cpp tests/prefill.cpp tools/perplexity.cpp
+	$(CLANG_FORMAT) --dry-run --Werror $(SOURCES) $(HEADERS) tests/probe.cpp tests/worker.cpp tests/q8.cpp tests/prefill.cpp tests/attention.cpp tools/perplexity.cpp

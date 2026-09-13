@@ -25,6 +25,7 @@ SmolLM2-135M Q8, rung 07, `-b 8 -j 2 -c 512`, UI active. Mean of two runs on
 Prefill divides the whole prompt's time by 26; its classifier runs only once.
 Projection times include input quantization (7.0 / 7.4 ms) and caller waiting
 (3.0 / 17.0 ms), prefill / decode. Worker time overlaps the caller.
+From rung 09, worker and waiting counters also include attention-head jobs.
 
 Normal builds: **2.648 ± 0.015 s TTFT**, **6.026 ± 0.013 decode tok/s**
 (mean ± sample std, two runs). All four outputs match. Profile builds averaged

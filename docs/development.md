@@ -6,7 +6,7 @@
 | [engine.h](../src/engine.h), [engine.cpp](../src/engine.cpp) | Scratch and KV ownership, reset, one-token forward pass |
 | [prefill.cpp](../src/prefill.cpp) | Prompt chunks, batched projections, final-token logits |
 | [kernels.h](../src/kernels.h), [kernels.cpp](../src/kernels.cpp) | FP32 and Q8 kernels and buffer contracts |
-| [worker.h](../src/worker.h), [worker.cpp](../src/worker.cpp) | Split projection rows between the caller and one persistent worker |
+| [worker.h](../src/worker.h), [worker.cpp](../src/worker.cpp) | Split projection rows or attention heads across the caller and one worker |
 | [profile.h](../src/profile.h) | Per-step timing, compiled in only with `-DUNREMARKABLE_PROFILE` |
 | [sampler.h](../src/sampler.h), [sampler.cpp](../src/sampler.cpp) | Greedy or temperature/top-p next-token selection |
 | [tokenizer.cpp](../src/tokenizer.cpp) | Legacy and byte-level BPE tokenization |
@@ -19,6 +19,8 @@ The worker tests cover row coverage, repeated jobs, shutdown, and thread limits;
 the forward tests compare one-thread and two-thread logits and reset. Q8 kernel
 tests cover all supported input/weight pairs, mixed lanes, scales, and tails
 on both NEON and scalar paths.
+Attention tests compare with scalar arithmetic across grouped heads, vector
+tails, split head ranges, and causal boundaries.
 Prefill tests compare exact logits and subsequent decode against sequential
 forward passes: FP32/Q8, one/two threads, prefixes, partial chunks, reset,
 context boundaries, and rejected inputs.

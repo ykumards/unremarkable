@@ -1,0 +1,28 @@
+{
+  "checkpoint": "models/smollm2-135m-q8.bin",
+  "token_ids": [
+    1,
+    19,
+    43,
+    7,
+    81,
+    28,
+    82,
+    198
+  ],
+  "threads": 1,
+  "comparisons": {
+    "exact": {
+      "max_abs_logit_difference": 0.0,
+      "mean_abs_logit_difference": 0.0,
+      "same_argmax_positions": 8,
+      "positions": 8
+    },
+    "simd": {
+      "max_abs_logit_difference": 1.3041725,
+      "mean_abs_logit_difference": 0.17377584417267652,
+      "same_argmax_positions": 8,
+      "positions": 8
+    }
+  }
+}

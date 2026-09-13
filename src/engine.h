@@ -73,6 +73,8 @@ class Engine {
   void project(const float* input, const Matrix& weight, float* output);
 
   void project_batch(const float* input, const Matrix& weight, int count, float* output);
+  void attend(const float* query, const float* keys, const float* values, int position,
+              float* output);
   void prefill_chunk(std::span<const int> tokens);
 
   Model model_;       // Permanent learned weights.

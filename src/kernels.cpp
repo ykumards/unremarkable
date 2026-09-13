@@ -290,10 +290,11 @@ void rope_inplace(const float* cosines, const float* sines, int head_size, int q
 
 void causal_attention(const float* query, const float* key_cache, const float* value_cache,
                       int n_heads, int n_kv_heads, int head_size, int context, int position,
-                      float* scores, float* output) {
+                      int head_begin, int head_end, float* scores, float* output) {
   const int kv_dim = n_kv_heads * head_size;
   const int queries_per_kv_head = n_heads / n_kv_heads;
-  for (int h = 0; h < n_heads; h++) {
+  const float score_divisor = std::sqrt(static_cast<float>(head_size));
+  for (int h = head_begin; h < head_end; h++) {
     const float* q = query + h * head_size;
     float* head_scores = scores + static_cast<size_t>(h) * context;
     const int kv_head_offset = (h / queries_per_kv_head) * head_size;
@@ -303,7 +304,7 @@ void causal_attention(const float* query, const float* key_cache, const float* v
       for (int i = 0; i < head_size; i++) {
         score += q[i] * k[i];
       }
-      score /= std::sqrt(static_cast<float>(head_size));
+      score /= score_divisor;
       head_scores[t] = score;
     }
 
@@ -314,7 +315,15 @@ void causal_attention(const float* query, const float* key_cache, const float* v
     for (int t = 0; t <= position; t++) {
       const float* v = value_cache + static_cast<size_t>(t) * kv_dim + kv_head_offset;
       float probability = head_scores[t];
-      for (int i = 0; i < head_size; i++) {
+      int i = 0;
+#if defined(__ARM_NEON) && !defined(UNREMARKABLE_SCALAR)
+      // Four independent output components; each still adds positions in order.
+      for (; i <= head_size - 4; i += 4) {
+        const float32x4_t product = vmulq_n_f32(vld1q_f32(v + i), probability);
+        vst1q_f32(head_output + i, vaddq_f32(vld1q_f32(head_output + i), product));
+      }
+#endif
+      for (; i < head_size; i++) {
         head_output[i] += probability * v[i];
       }
     }

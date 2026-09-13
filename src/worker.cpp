@@ -60,8 +60,8 @@ void RowWorker::loop() {
   }
 }
 
-void RowWorker::run(int rows, const std::function<void(int, int)>& work) {
-  constexpr int minimum_parallel_rows = 64;
+void RowWorker::run(int rows, const std::function<void(int, int)>& work,
+                    int minimum_parallel_rows) {
   if (threads_ == 1 || rows < minimum_parallel_rows) {
     if (rows > 0) {
       work(0, rows);

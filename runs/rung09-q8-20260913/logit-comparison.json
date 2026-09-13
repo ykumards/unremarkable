@@ -1,0 +1,30 @@
+{
+  "checkpoint": "models/smollm2-135m-q8.bin",
+  "input_token_ids": [
+    1,
+    19,
+    43,
+    7,
+    81,
+    28,
+    82,
+    198
+  ],
+  "probe_command": "./build/probe models/smollm2-135m-q8.bin 1 19 43 7 81 28 82 198",
+  "comparison": {
+    "inline": {
+      "exact_text_logits": true,
+      "max_abs_logit_difference": 0.0,
+      "mean_abs_logit_difference": 0.0,
+      "same_argmax_positions": 8,
+      "positions": 8
+    },
+    "vector": {
+      "exact_text_logits": false,
+      "max_abs_logit_difference": 1.094447129999999,
+      "mean_abs_logit_difference": 0.16581803789390134,
+      "same_argmax_positions": 8,
+      "positions": 8
+    }
+  }
+}

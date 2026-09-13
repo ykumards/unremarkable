@@ -44,10 +44,11 @@ void rope_inplace(const float* cosines, const float* sines, int head_size, int q
 // Attend to cache positions 0..position, including the current token. Query and
 // output are [n_heads][head_size]; caches are [context][n_kv_heads][head_size].
 // scores is reusable scratch [n_heads][context]. n_heads must be a multiple of
-// n_kv_heads, and position must fit context. Buffers must not overlap.
+// n_kv_heads, and position must fit context. Only heads [head_begin, head_end)
+// are written, so disjoint head ranges can run concurrently. Buffers must not overlap.
 void causal_attention(const float* query, const float* key_cache, const float* value_cache,
                       int n_heads, int n_kv_heads, int head_size, int context, int position,
-                      float* scores, float* output);
+                      int head_begin, int head_end, float* scores, float* output);
 
 // gate[i] = silu(gate[i]) * up[i]. The two buffers are [size].
 void swiglu_inplace(const float* up, int size, float* gate);

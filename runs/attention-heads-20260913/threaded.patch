@@ -1,0 +1,319 @@
+diff --git a/Makefile b/Makefile
+index 57fe4a7..8d7c178 100644
+--- a/Makefile
++++ b/Makefile
+@@ -85,18 +85,31 @@ build/probe-sanitize: tests/probe.cpp $(CORE) $(HEADERS) Makefile | build
+ 	$(CXX) $(CPPFLAGS) -O1 -g -std=c++23 -Wall -Wextra -ffp-contract=off \
+ 		-fsanitize=address,undefined -fno-omit-frame-pointer tests/probe.cpp $(CORE) $(LDLIBS) -o $@
+ 
+-test: build/unremarkable build/unremarkable-profile build/probe build/test-prefill build/test-worker build/test-q8 build/test-q8-scalar
++test: build/unremarkable build/unremarkable-profile build/probe build/test-prefill build/test-worker build/test-q8 build/test-q8-scalar build/test-attention build/test-attention-scalar
++	./build/test-attention
++	./build/test-attention-scalar
+ 	./build/test-q8
+ 	./build/test-q8-scalar
+ 	./build/test-worker
+ 	$(PYTHON) tests/test_engine.py --binary build/unremarkable --probe build/probe --prefill build/test-prefill \
+ 		--profile-binary build/unremarkable-profile
+ 
+-sanitize: build/unremarkable-sanitize build/probe-sanitize build/test-prefill-sanitize build/test-worker-sanitize build/test-q8-sanitize
++sanitize: build/unremarkable-sanitize build/probe-sanitize build/test-prefill-sanitize build/test-worker-sanitize build/test-q8-sanitize build/test-attention-sanitize
++	./build/test-attention-sanitize
+ 	./build/test-q8-sanitize
+ 	./build/test-worker-sanitize
+ 	$(PYTHON) tests/test_engine.py --binary build/unremarkable-sanitize --probe build/probe-sanitize --prefill build/test-prefill-sanitize
+ 
++build/test-attention: tests/attention.cpp src/kernels.cpp src/kernels.h Makefile | build
++	$(CXX) $(CPPFLAGS) $(CXXFLAGS) tests/attention.cpp src/kernels.cpp $(LDLIBS) -o $@
++
++build/test-attention-scalar: tests/attention.cpp src/kernels.cpp src/kernels.h Makefile | build
++	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -DUNREMARKABLE_SCALAR tests/attention.cpp src/kernels.cpp $(LDLIBS) -o $@
++
++build/test-attention-sanitize: tests/attention.cpp src/kernels.cpp src/kernels.h Makefile | build
++	$(CXX) $(CPPFLAGS) -O1 -g -std=c++23 -ffp-contract=off -fsanitize=address,undefined \
++		-fno-omit-frame-pointer tests/attention.cpp src/kernels.cpp $(LDLIBS) -o $@
++
+ build/test-worker: tests/worker.cpp src/worker.cpp src/worker.h Makefile | build
+ 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) tests/worker.cpp src/worker.cpp $(LDLIBS) -o $@
+ 
+@@ -126,6 +139,6 @@ check: test
+ check-sanitize: sanitize
+ CLANG_FORMAT ?= $(firstword $(shell command -v clang-format 2>/dev/null) $(wildcard /opt/homebrew/opt/llvm@21/bin/clang-format /opt/homebrew/opt/llvm/bin/clang-format) clang-format)
+ format:
+-	$(CLANG_FORMAT) -i $(SOURCES) $(HEADERS) tests/probe.cpp tests/worker.cpp tests/q8.cpp tests/prefill.cpp tools/perplexity.cpp
++	$(CLANG_FORMAT) -i $(SOURCES) $(HEADERS) tests/probe.cpp tests/worker.cpp tests/q8.cpp tests/prefill.cpp tests/attention.cpp tools/perplexity.cpp
+ check-format:
+-	$(CLANG_FORMAT) --dry-run --Werror $(SOURCES) $(HEADERS) tests/probe.cpp tests/worker.cpp tests/q8.cpp tests/prefill.cpp tools/perplexity.cpp
++	$(CLANG_FORMAT) --dry-run --Werror $(SOURCES) $(HEADERS) tests/probe.cpp tests/worker.cpp tests/q8.cpp tests/prefill.cpp tests/attention.cpp tools/perplexity.cpp
+diff --git a/src/engine.cpp b/src/engine.cpp
+index d7ad39f..b810d8f 100644
+--- a/src/engine.cpp
++++ b/src/engine.cpp
+@@ -92,6 +92,19 @@ void Engine::project(const float* input, const Matrix& weight, float* output) {
+   });
+ }
+ 
++void Engine::attend(const float* query, const float* keys, const float* values, int position,
++                    float* output) {
++  // Split whole heads; their score and output slices do not overlap.
++  worker_.run(
++      config_.n_heads,
++      [&](int begin, int end) {
++        causal_attention(query, keys, values, config_.n_heads, config_.n_kv_heads,
++                         config_.head_size(), config_.seq_len, position, begin, end,
++                         scratch_.attention_scores.data(), output);
++      },
++      2);
++}
++
+ std::span<float> Engine::forward(int token, int position) {
+   if (token < 0 || token >= config_.vocab_size) {
+     throw std::runtime_error("token ID out of range");
+@@ -138,9 +151,7 @@ std::span<float> Engine::forward(int token, int position) {
+     profiler_.lap(Stage::kQkv);
+     rope_inplace(cosines, sines, head_size, dim, kv_dim, query, key);
+     profiler_.lap(Stage::kRope);
+-    causal_attention(query, key_history, value_history, config_.n_heads, config_.n_kv_heads,
+-                     head_size, config_.seq_len, position, scratch_.attention_scores.data(),
+-                     attention_output);
++    attend(query, key_history, value_history, position, attention_output);
+     profiler_.lap(Stage::kAttention);
+     project(attention_output, weights.attention_output, projected);
+     profiler_.lap(Stage::kOutput);
+diff --git a/src/engine.h b/src/engine.h
+index 4fa4d84..3f04a6f 100644
+--- a/src/engine.h
++++ b/src/engine.h
+@@ -73,6 +73,8 @@ class Engine {
+   void project(const float* input, const Matrix& weight, float* output);
+ 
+   void project_batch(const float* input, const Matrix& weight, int count, float* output);
++  void attend(const float* query, const float* keys, const float* values, int position,
++              float* output);
+   void prefill_chunk(std::span<const int> tokens);
+ 
+   Model model_;       // Permanent learned weights.
+diff --git a/src/kernels.cpp b/src/kernels.cpp
+index 6546d24..00c2d72 100644
+--- a/src/kernels.cpp
++++ b/src/kernels.cpp
+@@ -290,10 +290,11 @@ void rope_inplace(const float* cosines, const float* sines, int head_size, int q
+ 
+ void causal_attention(const float* query, const float* key_cache, const float* value_cache,
+                       int n_heads, int n_kv_heads, int head_size, int context, int position,
+-                      float* scores, float* output) {
++                      int head_begin, int head_end, float* scores, float* output) {
+   const int kv_dim = n_kv_heads * head_size;
+   const int queries_per_kv_head = n_heads / n_kv_heads;
+-  for (int h = 0; h < n_heads; h++) {
++  const float score_divisor = std::sqrt(static_cast<float>(head_size));
++  for (int h = head_begin; h < head_end; h++) {
+     const float* q = query + h * head_size;
+     float* head_scores = scores + static_cast<size_t>(h) * context;
+     const int kv_head_offset = (h / queries_per_kv_head) * head_size;
+@@ -303,7 +304,7 @@ void causal_attention(const float* query, const float* key_cache, const float* v
+       for (int i = 0; i < head_size; i++) {
+         score += q[i] * k[i];
+       }
+-      score /= std::sqrt(static_cast<float>(head_size));
++      score /= score_divisor;
+       head_scores[t] = score;
+     }
+ 
+@@ -314,7 +315,15 @@ void causal_attention(const float* query, const float* key_cache, const float* v
+     for (int t = 0; t <= position; t++) {
+       const float* v = value_cache + static_cast<size_t>(t) * kv_dim + kv_head_offset;
+       float probability = head_scores[t];
+-      for (int i = 0; i < head_size; i++) {
++      int i = 0;
++#if defined(__ARM_NEON) && !defined(UNREMARKABLE_SCALAR)
++      // Four independent output components; each still adds positions in order.
++      for (; i <= head_size - 4; i += 4) {
++        const float32x4_t product = vmulq_n_f32(vld1q_f32(v + i), probability);
++        vst1q_f32(head_output + i, vaddq_f32(vld1q_f32(head_output + i), product));
++      }
++#endif
++      for (; i < head_size; i++) {
+         head_output[i] += probability * v[i];
+       }
+     }
+diff --git a/src/kernels.h b/src/kernels.h
+index 870d66e..ffc3d0d 100644
+--- a/src/kernels.h
++++ b/src/kernels.h
+@@ -44,10 +44,11 @@ void rope_inplace(const float* cosines, const float* sines, int head_size, int q
+ // Attend to cache positions 0..position, including the current token. Query and
+ // output are [n_heads][head_size]; caches are [context][n_kv_heads][head_size].
+ // scores is reusable scratch [n_heads][context]. n_heads must be a multiple of
+-// n_kv_heads, and position must fit context. Buffers must not overlap.
++// n_kv_heads, and position must fit context. Only heads [head_begin, head_end)
++// are written, so disjoint head ranges can run concurrently. Buffers must not overlap.
+ void causal_attention(const float* query, const float* key_cache, const float* value_cache,
+                       int n_heads, int n_kv_heads, int head_size, int context, int position,
+-                      float* scores, float* output);
++                      int head_begin, int head_end, float* scores, float* output);
+ 
+ // gate[i] = silu(gate[i]) * up[i]. The two buffers are [size].
+ void swiglu_inplace(const float* up, int size, float* gate);
+diff --git a/src/prefill.cpp b/src/prefill.cpp
+index abea3fd..deb5e68 100644
+--- a/src/prefill.cpp
++++ b/src/prefill.cpp
+@@ -85,9 +85,7 @@ void Engine::prefill_chunk(std::span<const int> tokens) {
+     for (int token = 0; token < count; ++token) {
+       const size_t offset = static_cast<size_t>(token) * dim;
+       // All K/V slots exist, but each query only reads through its own position.
+-      causal_attention(query + offset, key_history, value_history, config_.n_heads,
+-                       config_.n_kv_heads, head_size, config_.seq_len, start + token,
+-                       scratch_.attention_scores.data(), attention_output + offset);
++      attend(query + offset, key_history, value_history, start + token, attention_output + offset);
+     }
+     profiler_.lap(Stage::kAttention);
+     project_batch(attention_output, weights.attention_output, count, projected);
+diff --git a/src/worker.cpp b/src/worker.cpp
+index 311518a..973b7a2 100644
+--- a/src/worker.cpp
++++ b/src/worker.cpp
+@@ -60,8 +60,8 @@ void RowWorker::loop() {
+   }
+ }
+ 
+-void RowWorker::run(int rows, const std::function<void(int, int)>& work) {
+-  constexpr int minimum_parallel_rows = 64;
++void RowWorker::run(int rows, const std::function<void(int, int)>& work,
++                    int minimum_parallel_rows) {
+   if (threads_ == 1 || rows < minimum_parallel_rows) {
+     if (rows > 0) {
+       work(0, rows);
+diff --git a/src/worker.h b/src/worker.h
+index 69e8845..52e1ae1 100644
+--- a/src/worker.h
++++ b/src/worker.h
+@@ -19,8 +19,9 @@ class RowWorker {
+   int threads() const { return threads_; }
+ 
+   // Run disjoint ranges covering [0, rows), then wait for completion.
+-  // Calls must not overlap, and work must not throw. Small jobs stay on the caller.
+-  void run(int rows, const std::function<void(int, int)>& work);
++  // Calls must not overlap, and work must not throw. Jobs below the threshold
++  // stay on the caller; attention uses 2 because each item is a whole head.
++  void run(int rows, const std::function<void(int, int)>& work, int minimum_parallel_rows = 64);
+ 
+ #ifdef UNREMARKABLE_PROFILE
+   // Elapsed seconds, including lock acquisition. Read after run() returns.
+diff --git a/tests/worker.cpp b/tests/worker.cpp
+index 3046102..459dd20 100644
+--- a/tests/worker.cpp
++++ b/tests/worker.cpp
+@@ -9,14 +9,17 @@ int main() {
+   for (int threads : {1, 2}) {
+     for (int repeat = 0; repeat < 4; ++repeat) {
+       unremarkable::RowWorker worker(threads);
+-      for (int count : {0, 1, 63, 64, 65, 127, 512}) {
++      for (int count : {0, 1, 2, 9, 63, 64, 65, 127, 512}) {
+         std::vector<std::atomic<int>> hits(count);
+         for (int job = 0; job < 100; ++job) {
+-          worker.run(count, [&](int begin, int end) {
+-            for (int row = begin; row < end; ++row) {
+-              ++hits.at(row);
+-            }
+-          });
++          worker.run(
++              count,
++              [&](int begin, int end) {
++                for (int row = begin; row < end; ++row) {
++                  ++hits.at(row);
++                }
++              },
++              job % 2 == 0 ? 64 : 2);
+           for (const auto& hit : hits) {
+             if (hit.load() != job + 1) {
+               std::fputs("row skipped, duplicated, or returned before completion\n", stderr);
+diff --git a/tests/attention.cpp b/tests/attention.cpp
+new file mode 100644
+index 0000000..8f450f5
+--- /dev/null
++++ b/tests/attention.cpp
+@@ -0,0 +1,82 @@
++#include <algorithm>
++#include <cmath>
++#include <cstdio>
++#include <limits>
++#include <utility>
++#include <vector>
++
++#include "kernels.h"
++
++using unremarkable::causal_attention;
++
++// Compare against scalar attention, including grouped heads and SIMD tails.
++int main() {
++  constexpr int context = 65;
++  constexpr float untouched = -999;
++  for (int head_size : {1, 3, 4, 7, 16, 64}) {
++    for (int kv_heads : {1, 3, 9}) {
++      constexpr int heads = 9;
++      const int kv_dim = kv_heads * head_size;
++      for (int position : {0, 1, 31, 64}) {
++        std::vector<float> query(heads * head_size);
++        std::vector<float> keys(context * kv_dim, std::numeric_limits<float>::quiet_NaN());
++        std::vector<float> values = keys;
++        for (size_t i = 0; i < query.size(); ++i) {
++          query[i] = std::sin(static_cast<float>(i) * 0.31f);
++        }
++        for (int i = 0; i < (position + 1) * kv_dim; ++i) {
++          keys[i] = std::cos(i * 0.17f);
++          values[i] = std::sin(i * 0.23f);
++        }
++        std::vector<float> scores(heads * context, untouched);
++        std::vector<float> output(heads * head_size + 1, untouched);
++        // Split through a KV group to check global head-to-cache indexing.
++        for (const auto [begin, end] : {std::pair{0, 4}, std::pair{4, heads}}) {
++          causal_attention(query.data(), keys.data(), values.data(), heads, kv_heads, head_size,
++                           context, position, begin, end, scores.data(), output.data());
++        }
++        for (int h = 0; h < heads; ++h) {
++          std::vector<float> probabilities(position + 1);
++          const int kv_offset = (h / (heads / kv_heads)) * head_size;
++          for (int t = 0; t <= position; ++t) {
++            float dot = 0;
++            for (int i = 0; i < head_size; ++i) {
++              dot += query[h * head_size + i] * keys[t * kv_dim + kv_offset + i];
++            }
++            probabilities[t] = dot / std::sqrt(static_cast<float>(head_size));
++          }
++          const float largest = *std::max_element(probabilities.begin(), probabilities.end());
++          float denominator = 0;
++          for (float& p : probabilities) {
++            p = std::exp(p - largest);
++            denominator += p;
++          }
++          for (float& p : probabilities) {
++            p /= denominator;
++          }
++          for (int i = 0; i < head_size; ++i) {
++            float expected = 0;
++            for (int t = 0; t <= position; ++t) {
++              expected += probabilities[t] * values[t * kv_dim + kv_offset + i];
++            }
++            const float actual = output[h * head_size + i];
++            if (!std::isfinite(actual) || std::fabs(actual - expected) > 2e-6f) {
++              std::fprintf(stderr, "attention mismatch: size=%d kv=%d pos=%d head=%d i=%d\n",
++                           head_size, kv_heads, position, h, i);
++              return 1;
++            }
++          }
++          for (int t = position + 1; t < context; ++t) {
++            if (scores[h * context + t] != untouched) {
++              return 1;
++            }
++          }
++        }
++        if (output.back() != untouched) {
++          return 1;
++        }
++      }
++    }
++  }
++  std::puts("attention: scalar reference, grouped heads, tails, and causal boundaries passed");
++}
