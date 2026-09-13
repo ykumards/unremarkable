@@ -16,8 +16,7 @@ git diff rung-02 rung-03 -- src/
 | [05: two threads](https://github.com/ykumards/unremarkable/tree/milestone/05-q8-threads) | Split projection rows across cores | Parallel execution | 5.76 |
 | [06: six-op dot](https://github.com/ykumards/unremarkable/tree/milestone/06-q8-six-op) | Pair products before widening | Instructions per Q8 block | 6.32 |
 
-These steps were first explored on [`optimized`](https://github.com/ykumards/unremarkable/tree/optimized)
-and measured separately here. The runs below explain why prefetch comes before SIMD.
+The runs below measure each change and explain why prefetch comes before SIMD.
 
 ## Measured: 01 on the tablet (2026-09-12)
 
@@ -129,8 +128,7 @@ Peak memory falls from 539.6 to 170.8 MiB. This Q8 run completed with the tablet
 UI running.
 
 Quantization changes results: perplexity rises 0.6% (see the accuracy section
-below), and the 64-token text differs from FP32's (`4ea6b63a`). The logits are
-byte-identical to the Q8 engine on `optimized`.
+below), and the 64-token text differs from FP32's (`4ea6b63a`).
 
 ```sh
 make chat-model-q8   # tools/export_hf.py -q q8_0; needs numpy
@@ -164,9 +162,8 @@ Python calculation reproduces loss and KL at four positions. For the control,
 the exporter uses limits of 7 instead of 127 in `quantize_q8_0`: 15 levels
 (−7…7) instead of 255. Its perplexity rises 48%.
 
-Scores come from the host build, where Q8_0 logits match `optimized` byte for
-byte. SmolLM2 is instruction-tuned and has likely seen Wikipedia, so its absolute
-perplexity here says less than the gap between the two checkpoints.
+Scores come from the host build. This comparison measures the quantization loss
+on WikiText-2, not general instruction-following quality.
 
 ## Measured: 05 on the tablet (2026-09-13)
 
@@ -235,3 +232,19 @@ inputs, and tails pass on host NEON, host scalar, and tablet ARMv7. The 17 engin
 tests and worker tests pass, including ASan/UBSan; formatting passes. Host
 SmolLM2 logits match rung 05 exactly at four tested positions. The saved ARMv7
 assembly excerpt confirms six arithmetic instructions.
+
+## Memory ceiling
+
+Sequential reads measured on the tablet on 2026-09-10: a 144 MiB buffer,
+eight passes, using NEON loads and prefetch.
+
+| Threads | Read bandwidth (GB/s) |
+| --- | ---: |
+| 1 | 1.423 |
+| 2 | 2.708 |
+| 3 | 2.643 |
+| 4 | 2.630 |
+
+Q8 weights occupy about 0.151 GB including scales. Streaming them once per token
+gives **2.708 ÷ 0.151 ≈ 17.9 tok/s**. This estimate assigns all measured bandwidth
+to weight reads; it excludes arithmetic, KV-cache traffic, and synchronization.
