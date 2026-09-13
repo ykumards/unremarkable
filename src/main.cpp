@@ -145,8 +145,10 @@ void generate(unremarkable::Engine& engine, const unremarkable::Tokenizer& token
   if (prompt_tokens > engine.config().seq_len) {
     throw std::runtime_error("prompt exceeds context capacity");
   }
-  print_piece(chat ? options.opening : options.prompt);
-  std::cout.flush();
+  if (!chat) {
+    print_piece(options.prompt);
+    std::cout.flush();
+  }
 
   double prefill_start = now();
   std::span<float> logits;
@@ -157,6 +159,11 @@ void generate(unremarkable::Engine& engine, const unremarkable::Tokenizer& token
     }
   } else {
     logits = engine.prefill(tokens, options.batch);
+  }
+  // Shown with the first generated token, so it never looks like a stalled reply.
+  if (chat) {
+    print_piece(options.opening);
+    std::cout.flush();
   }
   double prefill_seconds = now() - prefill_start;
 #ifdef UNREMARKABLE_PROFILE
