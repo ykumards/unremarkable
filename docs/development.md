@@ -51,7 +51,7 @@ prefill loop for comparison. Decode still processes one token at a time.
 
 ## Bedtime stories on the tablet
 
-Circle a diary entry, tap the sleeping-cat button in the selection menu, and the
+Circle something in your notebook, tap the sleeping-cat button in the selection menu, and the
 [fine-tuned model](../train/README.md) writes a short bedtime story about the day.
 `device/unremarkable-selection.qmd` adds the button through xovi; it runs the
 tablet's handwriting recognizer and passes the text to `ask-bg.sh`. Recognition
@@ -64,8 +64,8 @@ top of it. In
 unremarkable          build/unremarkable-armv7
 ask.sh, ask-bg.sh     device/
 sleeping-cat.svg      device/, the button icon
-models/diary-q8.bin   train/out/final exported with tools/export_hf.py -q q8_0
-models/diary-q8.tok
+models/story-q8.bin   train/out/final exported with tools/export_hf.py -q q8_0
+models/story-q8.tok
 ```
 
 ## Profiling

@@ -5,10 +5,10 @@ set -u
 
 DIR=/home/root/unremarkable
 STATE="$DIR/state"
-MODEL="$DIR/models/diary-q8.bin"
-TOKENIZER="$DIR/models/diary-q8.tok"
+MODEL="$DIR/models/story-q8.bin"
+TOKENIZER="$DIR/models/story-q8.tok"
 LOCK="$STATE/lock"
-LIMIT="${2:-240}"
+LIMIT="${2:-300}"
 
 # First 120 words (~160 tokens), like the training entries; leaves room in 512 tokens.
 WORDS=120
@@ -16,8 +16,8 @@ ENTRY=$(printf '%s' "${1:-}" | tr -d '\000' | tr -s ' \t\n' '   ' | sed 's/^ //'
     | cut -d' ' -f1-$WORDS | cut -c1-1000)
 [ -z "$ENTRY" ] && { echo "usage: ask.sh \"<diary entry>\" [max_tokens]" >&2; exit 2; }
 
-# Must match diary_prompt in train/prepare.py, the prompt the model was tuned on.
-PROMPT=$(printf 'My diary entry for today:\n\n%s\n\nTell me a short bedtime story about it.' "$ENTRY")
+# Must match story_prompt in train/prepare.py, the prompt the model was tuned on.
+PROMPT=$(printf 'Here is something from my notebook:\n\n%s\n\nTell me a short bedtime story about it.' "$ENTRY")
 
 mkdir -p "$STATE"
 
@@ -45,8 +45,9 @@ printf '%s' "$ENTRY" > "$STATE/prompt"
 printf 'running' > "$STATE/status"
 
 # No system turn: the fine-tune was trained without one.
+# Temperature 0.5 wanders less than 0.8 (train/README.md, Results).
 "$DIR/unremarkable" "$MODEL" -z "$TOKENIZER" -c 512 -y "" -j 2 -b 8 \
-    -t 0.8 -p 0.9 -s "$SEED" -i "$PROMPT" -n "$LIMIT" \
+    -t 0.5 -p 0.9 -s "$SEED" -i "$PROMPT" -n "$LIMIT" \
     > "$STATE/out.txt" 2> "$STATE/meta.json"
 
 printf 'done' > "$STATE/status"

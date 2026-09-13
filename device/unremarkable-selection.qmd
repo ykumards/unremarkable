@@ -148,7 +148,7 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
                 root.storyStarted = Date.now();
                 root.storyElapsed = 0;
                 storyRunner.executeCommand("/home/root/unremarkable/ask-bg.sh",
-                                           [entry, "240"]);
+                                           [entry]);
                 storyPopup.parent = storyTopLevel();
                 storyPopup.open();
                 storyTimer.start();

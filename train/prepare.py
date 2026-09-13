@@ -1,20 +1,31 @@
 #!/usr/bin/env python3
-"""Turn TinyStories-Instruct into bedtime-story chat examples (JSON lines).
+"""Build chat examples (JSON lines) from generated stories and TinyStories-Instruct.
 
-Each record is a set of fields in any order; the story runs from "Story:" to
-the next field. Stories marked BadEnding are skipped. With --diary, a sample of
-them is mixed with diary-entry stories from generate.py.
+With --generated, pairs from generate.py are filtered (the story must keep the
+key, avoid stock mood words and never mention the notebook), some prompts get
+recognition-style typos, and a TinyStories sample is mixed in. Without it, all
+of TinyStories-Instruct is written, as for the first fine-tune.
+
+TinyStories records are fields in any order; the story runs from "Story:" to
+the next field. Stories marked BadEnding are skipped.
 """
 import argparse
+from collections import Counter
 import json
 from pathlib import Path
 import random
+import re
+
+from generate import MOOD_WORDS
 
 FIELDS = ("Features:", "Words:", "Summary:", "Random sentence:", "Story:")
+LEAK = re.compile(r"\b(writer|diary|notebook|journal)\b", re.I)
+STOPWORDS = {"the", "and", "one", "with", "for", "from", "into", "our", "your", "his", "her",
+             "its", "their", "this", "that"}
 
 
-def diary_prompt(entry):
-    return f"My diary entry for today:\n\n{entry}\n\nTell me a short bedtime story about it."
+def story_prompt(text):
+    return f"Here is something from my notebook:\n\n{text}\n\nTell me a short bedtime story about it."
 
 
 def records(path):
@@ -71,26 +82,68 @@ def tinystories(path, rng):
     print(f"{path.name}: {kept} examples, {skipped} skipped")
 
 
+def rejected(row):
+    story = row["story"]
+    words = len(story.split())
+    if not 60 <= words <= 180:
+        return "length"
+    # Any content word of the key, by stem, so "football match" accepts "the match".
+    parts = [w for w in re.findall(r"[\w']+", row["key"])
+             if len(w) > 2 and w.lower() not in STOPWORDS] or [row["key"]]
+    if not any(re.search(rf"\b{re.escape(w[:max(4, len(w) - 2)])}", story, re.I)
+               for w in parts):
+        return "key"
+    if sum(len(re.findall(rf"\b{w}", story, re.I)) for w in MOOD_WORDS) * 100 / words > 3:
+        return "mood"
+    if LEAK.search(story):
+        return "leak"
+    return None
+
+
+def typos(text, rng):
+    # Swaps or drops a letter in one to three longer words, like misread handwriting.
+    words = text.split(" ")
+    eligible = [i for i, word in enumerate(words) if len(word) >= 4 and word.isalpha()]
+    for i in rng.sample(eligible, min(len(eligible), rng.randint(1, 3))):
+        word = words[i]
+        j = rng.randrange(1, len(word) - 2)
+        words[i] = (word[:j] + word[j + 1] + word[j] + word[j + 2:] if rng.random() < 0.5
+                    else word[:j] + word[j + 1:])
+    return " ".join(words)
+
+
 def main():
     here = Path(__file__).resolve().parent
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", type=Path, default=here / "data")
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--diary", type=Path, help="generate.py output to mix in")
-    parser.add_argument("--stories", type=int, default=150_000,
-                        help="TinyStories training examples kept with --diary")
-    parser.add_argument("--repeat", type=int, default=2, help="copies of each diary example")
+    parser.add_argument("--generated", type=Path, help="generate.py output to train on")
+    parser.add_argument("--stories", type=int, default=50_000,
+                        help="TinyStories training examples mixed with --generated")
+    parser.add_argument("--repeat", type=int, default=2, help="copies of each generated example")
     parser.add_argument("--valid", type=int, default=1_000,
-                        help="validation examples from each source with --diary")
+                        help="validation examples from each source with --generated")
+    parser.add_argument("--typos", type=float, default=0.15,
+                        help="share of generated prompts given recognition-style typos")
     args = parser.parse_args()
     rng = random.Random(args.seed)
-    splits = {s: tinystories(args.data / f"TinyStories-Instruct-{s}.txt", rng)
-              for s in ("valid", "train")}
-    if args.diary:
-        rows = sorted((json.loads(line) for line in args.diary.open()), key=lambda r: r["id"])
-        diary = [{"prompt": diary_prompt(r["diary"]), "story": r["story"]} for r in rows]
-        valid = rng.sample(list(splits["valid"]), args.valid) + diary[:args.valid]
-        train = rng.sample(list(splits["train"]), args.stories) + diary[args.valid:] * args.repeat
+    source = lambda split: tinystories(args.data / f"TinyStories-Instruct-{split}.txt", rng)
+    if not args.generated:
+        splits = {"valid": source("valid"), "train": source("train")}
+    else:
+        rows = sorted((json.loads(line) for line in args.generated.open()),
+                      key=lambda r: r["id"])
+        reasons = [rejected(r) for r in rows]
+        dropped = Counter(reason for reason in reasons if reason)
+        kept = [r for r, reason in zip(rows, reasons) if not reason]
+        print(f"{args.generated.name}: kept {len(kept)} of {len(rows)}; dropped "
+              + (", ".join(f"{n} {reason}" for reason, n in dropped.most_common()) or "none"))
+        generated = [{"prompt": story_prompt(typos(r["text"], rng) if rng.random() < args.typos
+                                             else r["text"]), "story": r["story"]}
+                     for r in kept]
+        sample = lambda split, n: rng.sample(list(source(split)), n) if n else []
+        valid = sample("valid", min(args.valid, args.stories)) + generated[:args.valid]
+        train = sample("train", args.stories) + generated[args.valid:] * args.repeat
         rng.shuffle(train)
         splits = {"valid": valid, "train": train}
     for split, rows in splits.items():
