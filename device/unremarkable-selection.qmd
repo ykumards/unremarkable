@@ -176,7 +176,7 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
                 modal: true
                 focus: true
                 width: 1000
-                height: 1180
+                height: 1560
                 anchors.centerIn: parent
                 padding: 0
                 closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
@@ -238,7 +238,7 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
                             lineHeight: 1.35
                             lineHeightMode: Text.ProportionalHeight
                             wrapMode: Text.WordWrap
-                            maximumLineCount: 16
+                            maximumLineCount: 24
                             elide: Text.ElideRight
                         }
 
