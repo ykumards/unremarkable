@@ -2,7 +2,8 @@
 """Convert a Hugging Face Llama-architecture model to the unremarkable format.
 
 Writes MODEL.bin (weights) and MODEL.tok (byte-level BPE tokenizer). Reads
-safetensors and tokenizer.json directly; no torch or numpy required.
+safetensors and tokenizer.json directly; the FP32 path needs only the standard
+library. --quantize q8_0 additionally requires numpy, imported only on that path.
 """
 import argparse
 import json
@@ -12,6 +13,9 @@ import struct
 MODEL_MAGIC = 0x4B524E55  # "UNRK"
 TOKEN_MAGIC = 0x4B4F5455  # "UTOK"
 VERSION = 1
+VERSION_QUANT = 2  # Adds the quantization field after the RoPE base.
+QUANT_NONE, QUANT_Q8_0 = 0, 1
+GROUP = 32  # Values per scale; must match kQuantGroup in src/kernels.h.
 
 
 def bf16_to_f32(raw):
@@ -61,7 +65,41 @@ def interleave_rope(raw, rows, columns, head_size):
     return bytes(out)
 
 
-def export_model(source, output, context):
+
+def quantize_q8_0(raw, columns):
+    """Group-of-32 symmetric int8, laid out as struct Q8Block in src/kernels.h.
+
+    Halves round away from zero to match std::lround in quantize_q8, so weights
+    quantized here agree byte for byte with the engine's own quantizer.
+    """
+    import numpy as np  # Only the quantized path needs it.
+
+    values = np.frombuffer(raw, dtype="<f4")
+    if values.size % columns:
+        raise ValueError(f"tensor of {values.size} values is not a multiple of {columns}")
+    rows = values.size // columns
+    groups = (columns + GROUP - 1) // GROUP
+    # The tail group is zero-padded; a zero contributes nothing to a dot product.
+    padded = np.zeros((rows, groups * GROUP), dtype=np.float32)
+    padded[:, :columns] = values.reshape(rows, columns)
+    blocks = padded.reshape(rows, groups, GROUP)
+
+    largest = np.abs(blocks).max(axis=2).astype(np.float32)
+    scale = (largest / np.float32(127.0)).astype(np.float32)
+    # A group that is entirely zero would divide by zero; its values are already zero.
+    inverse = np.zeros_like(largest)
+    np.divide(np.float32(127.0), largest, out=inverse, where=largest > 0)
+    scaled = blocks * inverse[:, :, None]
+    rounded = np.copysign(np.floor(np.abs(scaled) + np.float32(0.5)), scaled)
+    quantized = np.clip(rounded, -127, 127).astype(np.int8)
+
+    out = np.empty((rows, groups, 4 + GROUP), dtype=np.int8)
+    out[:, :, :4] = np.ascontiguousarray(scale).view(np.int8).reshape(rows, groups, 4)
+    out[:, :, 4:] = quantized
+    return out.tobytes()
+
+
+def export_model(source, output, context, quantize=False):
     config = json.loads((source / "config.json").read_text())
     if config["architectures"] != ["LlamaForCausalLM"]:
         raise ValueError(f"unsupported architecture: {config['architectures']}")
@@ -89,31 +127,40 @@ def export_model(source, output, context):
             yield interleave_rope(raw, rows, dim, head_size) if permute else raw
 
     with output.open("wb") as out:
-        out.write(struct.pack("<Ii7if", MODEL_MAGIC, VERSION, dim, hidden, layers, heads,
-                              kv_heads, vocab if shared else -vocab, context,
-                              float(config["rope_theta"])))
-        out.write(weights.tensor("model.embed_tokens.weight", (vocab, dim)))
+        # Matrices follow the checkpoint's weight format; norm vectors stay FP32.
+        def matrix(raw, columns):
+            out.write(quantize_q8_0(raw, columns) if quantize else raw)
+
+        if quantize:
+            out.write(struct.pack("<Ii7ifi", MODEL_MAGIC, VERSION_QUANT, dim, hidden, layers,
+                                  heads, kv_heads, vocab if shared else -vocab, context,
+                                  float(config["rope_theta"]), QUANT_Q8_0))
+        else:
+            out.write(struct.pack("<Ii7if", MODEL_MAGIC, VERSION, dim, hidden, layers, heads,
+                                  kv_heads, vocab if shared else -vocab, context,
+                                  float(config["rope_theta"])))
+        matrix(weights.tensor("model.embed_tokens.weight", (vocab, dim)), dim)
         for i in range(layers):
             out.write(weights.tensor(layer(i, "input_layernorm"), (dim,)))
         for raw in each("self_attn.q_proj", dim, permute=True):
-            out.write(raw)
+            matrix(raw, dim)
         for raw in each("self_attn.k_proj", kv_dim, permute=True):
-            out.write(raw)
+            matrix(raw, dim)
         for raw in each("self_attn.v_proj", kv_dim):
-            out.write(raw)
+            matrix(raw, dim)
         for i in range(layers):
-            out.write(weights.tensor(layer(i, "self_attn.o_proj"), (dim, dim)))
+            matrix(weights.tensor(layer(i, "self_attn.o_proj"), (dim, dim)), dim)
         for i in range(layers):
             out.write(weights.tensor(layer(i, "post_attention_layernorm"), (dim,)))
         for raw in each("mlp.gate_proj", hidden):
-            out.write(raw)
+            matrix(raw, dim)
         for i in range(layers):
-            out.write(weights.tensor(layer(i, "mlp.down_proj"), (dim, hidden)))
+            matrix(weights.tensor(layer(i, "mlp.down_proj"), (dim, hidden)), hidden)
         for raw in each("mlp.up_proj", hidden):
-            out.write(raw)
+            matrix(raw, dim)
         out.write(weights.tensor("model.norm.weight", (dim,)))
         if not shared:
-            out.write(weights.tensor("lm_head.weight", (vocab, dim)))
+            matrix(weights.tensor("lm_head.weight", (vocab, dim)), dim)
     return dim, layers, vocab, context
 
 
@@ -183,16 +230,19 @@ def main():
                         help="output checkpoint path; the tokenizer replaces .bin with .tok")
     parser.add_argument("-c", "--context", type=int, default=2048,
                         help="context to store in the header (default 2048)")
+    parser.add_argument("-q", "--quantize", choices=["q8_0"],
+                        help="quantize matrices to int8 in groups of 32 (requires numpy)")
     args = parser.parse_args()
     try:
-        dim, layers, vocab, context = export_model(args.source, args.output, args.context)
+        dim, layers, vocab, context = export_model(args.source, args.output, args.context,
+                                                   quantize=args.quantize == "q8_0")
         tokenizer = args.output.with_suffix(".tok")
         longest, specials = export_tokenizer(args.source, tokenizer, vocab)
-    except (OSError, KeyError, ValueError) as error:
+    except (ImportError, OSError, KeyError, ValueError) as error:
         parser.exit(1, f"error: {error}\n")
     size = args.output.stat().st_size / 1048576
-    print(f"Wrote {args.output} ({size:.1f} MiB): dim {dim}, {layers} layers, "
-          f"vocab {vocab}, context {context}")
+    print(f"Wrote {args.output} ({size:.1f} MiB, {args.quantize or 'fp32'}): dim {dim}, "
+          f"{layers} layers, vocab {vocab}, context {context}")
     print(f"Wrote {tokenizer}: {vocab} tokens, {specials} special, longest {longest} bytes")
 
 

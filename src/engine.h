@@ -34,6 +34,7 @@ struct Scratch {
   std::vector<float> up;                // [hidden_dim]
   std::vector<float> attention_scores;  // [n_heads, context]
   std::vector<float> logits;            // [vocab_size]
+  std::vector<Q8Block> quantized;       // projection input, for Q8_0 weights only
 };
 
 class Engine {
@@ -52,6 +53,9 @@ class Engine {
   void reset();
 
  private:
+  // output = weight * input, quantizing the input first for Q8_0 weights.
+  void project(const float* input, const Matrix& weight, float* output);
+
   Model model_;      // Permanent learned weights.
   Config config_;    // Model dimensions, with the selected context capacity.
   KVCache cache_;    // History of the current sequence.

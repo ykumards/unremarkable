@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Fetch pinned TinyStories assets; no Python packages required."""
+"""Fetch pinned model and evaluation assets; no Python packages required."""
 import argparse
 import hashlib
 from pathlib import Path
 import subprocess
 import tempfile
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 MODEL_BASE = "https://huggingface.co/karpathy/tinyllamas/resolve/0bd21da7698eaf29a0d7de3992de8a46ef624add/"
@@ -20,6 +21,10 @@ ASSETS = {
         ("tok512.bin", MODEL_BASE + "stories260K/tok512.bin", "037cb335abb25d1fa9e8ecae30ed2a3a8ace9302862ebcdc05d51a6bbb10c312"),
     ],
 }
+# WikiText-2 test split, the text llama.cpp measures perplexity on.
+WIKITEXT = ("wikitext-2-raw-v1.zip",
+            "https://huggingface.co/datasets/ggml-org/ci/resolve/main/wikitext-2-raw-v1.zip",
+            "ef7edb566e3e2b2d31b29c1fdb0c89a4cc683597484c3dc2517919c615435a11")
 # Instruct model, converted to this engine's format by tools/export_hf.py.
 SMOLLM = [
     ("config.json", "8eb740e8bbe4cff95ea7b4588d17a2432deb16e8075bc5828ff7ba9be94d982a"),
@@ -57,8 +62,13 @@ def download(name, url, digest, subdirectory=""):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("model", choices=[*ASSETS, "smollm2"])
+    parser.add_argument("model", choices=[*ASSETS, "smollm2", "wikitext"])
     args = parser.parse_args()
+    if args.model == "wikitext":
+        download(*WIKITEXT)
+        with zipfile.ZipFile(ROOT / "models" / WIKITEXT[0]) as archive:
+            archive.extract("wikitext-2-raw/wiki.test.raw", ROOT / "models")
+        raise SystemExit(0)
     if args.model == "smollm2":
         for name, digest in SMOLLM:
             download(name, SMOLLM_BASE + name, digest, "hf/SmolLM2-135M-Instruct")

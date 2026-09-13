@@ -7,7 +7,7 @@ SOURCES = src/main.cpp src/engine.cpp src/model.cpp src/sampler.cpp src/kernels.
 HEADERS = src/engine.h src/model.h src/sampler.h src/kernels.h src/tokenizer.h
 CORE = src/engine.cpp src/model.cpp src/sampler.cpp src/kernels.cpp src/tokenizer.cpp
 
-.PHONY: all test sanitize models test-models chat-model tablet tablet-image
+.PHONY: all test sanitize models test-models chat-model chat-model-q8 accuracy tablet tablet-image
 all: build/unremarkable
 
 build:
@@ -31,6 +31,18 @@ chat-model:
 	$(PYTHON) tools/download.py smollm2
 	$(PYTHON) tools/export_hf.py models/hf/SmolLM2-135M-Instruct \
 		-o models/smollm2-135m.bin -c 2048
+
+# The same weights as Q8_0: 144 MiB rather than 513 MiB. Quantizing needs numpy.
+chat-model-q8:
+	$(PYTHON) tools/download.py smollm2
+	$(PYTHON) tools/export_hf.py models/hf/SmolLM2-135M-Instruct \
+		-o models/smollm2-135m-q8.bin -c 2048 -q q8_0
+
+# Q8_0 against FP32 on the first 40 chunks of WikiText-2 test, fixed in advance.
+accuracy: build/perplexity
+	$(PYTHON) tools/download.py wikitext
+	./build/perplexity models/smollm2-135m.bin models/smollm2-135m-q8.bin \
+		models/smollm2-135m.tok models/wikitext-2-raw/wiki.test.raw 40
 
 # Cross build for the reMarkable 2: ARMv7 hard-float, NEON/VFPv4. libstdc++ and
 # libgcc are linked statically because the toolchain ships 6.0.33 while the
@@ -56,6 +68,9 @@ tablet: build/unremarkable-armv7
 build/probe: tests/probe.cpp $(CORE) $(HEADERS) Makefile | build
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) tests/probe.cpp $(CORE) $(LDFLAGS) $(LDLIBS) -o $@
 
+build/perplexity: tools/perplexity.cpp $(CORE) $(HEADERS) Makefile | build
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) tools/perplexity.cpp $(CORE) $(LDFLAGS) $(LDLIBS) -o $@
+
 build/probe-sanitize: tests/probe.cpp $(CORE) $(HEADERS) Makefile | build
 	$(CXX) $(CPPFLAGS) -O1 -g -std=c++23 -Wall -Wextra -ffp-contract=off \
 		-fsanitize=address,undefined -fno-omit-frame-pointer tests/probe.cpp $(CORE) $(LDLIBS) -o $@
@@ -71,6 +86,6 @@ check: test
 check-sanitize: sanitize
 CLANG_FORMAT ?= $(firstword $(shell command -v clang-format 2>/dev/null) $(wildcard /opt/homebrew/opt/llvm@21/bin/clang-format /opt/homebrew/opt/llvm/bin/clang-format) clang-format)
 format:
-	$(CLANG_FORMAT) -i $(SOURCES) $(HEADERS) tests/probe.cpp
+	$(CLANG_FORMAT) -i $(SOURCES) $(HEADERS) tests/probe.cpp tools/perplexity.cpp
 check-format:
-	$(CLANG_FORMAT) --dry-run --Werror $(SOURCES) $(HEADERS) tests/probe.cpp
+	$(CLANG_FORMAT) --dry-run --Werror $(SOURCES) $(HEADERS) tests/probe.cpp tools/perplexity.cpp
