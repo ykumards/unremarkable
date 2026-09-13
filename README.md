@@ -25,6 +25,10 @@ memory-only ceiling. [Calculation](docs/optimizations.md#memory-ceiling)
 · [Two-thread runs](docs/optimizations.md#measured-05-on-the-tablet-2026-09-13)
 · [Six-op runs](docs/optimizations.md#measured-06-on-the-tablet-2026-09-13).
 
+Batched prefill cuts the wait for the first token from **3.94 s to 2.64 s** on
+our 26-token prompt. [Runs](docs/optimizations.md#measured-07-on-the-tablet-2026-09-13)
+— the turtle tracks decode speed.
+
 ## Code and docs
 
 - [Inference](docs/inference.md): follow a token through memory and the model.

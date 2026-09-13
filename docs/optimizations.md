@@ -15,6 +15,10 @@ git diff rung-02 rung-03 -- src/
 | [04: Q8](https://github.com/ykumards/unremarkable/tree/rung-04) | 32 int8 weights per scale | Memory traffic and size | 3.80 |
 | [05: two threads](https://github.com/ykumards/unremarkable/tree/milestone/05-q8-threads) | Split projection rows across cores | Parallel execution | 5.76 |
 | [06: six-op dot](https://github.com/ykumards/unremarkable/tree/milestone/06-q8-six-op) | Pair products before widening | Instructions per Q8 block | 6.32 |
+| [07: batched prefill](https://github.com/ykumards/unremarkable/tree/milestone/07-batched-prefill) | Eight prompt tokens per projection; final logits only | Time to first token: 3.94 → 2.64 s | 6.05¹ |
+
+¹ Rung 07 changes prefill. Its matched baseline decoded at 5.92 tok/s; it does
+not establish a decode improvement or regression against rung 06's older run.
 
 The runs below measure each change and explain why prefetch comes before SIMD.
 
@@ -232,6 +236,50 @@ inputs, and tails pass on host NEON, host scalar, and tablet ARMv7. The 17 engin
 tests and worker tests pass, including ASan/UBSan; formatting passes. Host
 SmolLM2 logits match rung 05 exactly at four tested positions. The saved ARMv7
 assembly excerpt confirms six arithmetic instructions.
+
+## Measured: 07 on the tablet (2026-09-13)
+
+[Raw runs](../runs/prefill-20260913/) · [PR #7](https://github.com/ykumards/unremarkable/pull/7).
+
+`Engine::prefill()` processes up to eight prompt tokens per chunk. Each layer's
+projections become matrix-matrix products: `X[batch, input] × Wᵀ → Y[batch, output]`.
+The kernel reuses a weight row through cache across tokens, using the existing
+NEON dot product. It has no packed weights or register tiling yet. The worker
+splits weight rows as before, with one wake/wait per batched projection.
+
+Only the last prompt token runs the final norm and vocabulary projection.
+`-b 1` isolates that saving; `-b 8` adds batching. `-b 0` retains the original
+forward loop. Decode still uses `forward()`.
+
+| Prefill mode | TTFT runs (s) | Mean TTFT ± sample std | Prefill tok/s ± sample std | Decode tok/s ± sample std |
+| --- | --- | ---: | ---: | ---: |
+| Original loop, `-b 0` | 4.120, 3.753 | 3.937 ± 0.260 | 6.62 ± 0.44 | 5.918 ± 0.156 |
+| Final logits only, `-b 1` | 3.348, 3.229 | 3.289 ± 0.084 | 7.91 ± 0.20 | 5.986 ± 0.006 |
+| **Batch eight, `-b 8`** | 2.643, 2.633 | **2.638 ± 0.007** | **9.86 ± 0.02** | 6.053 ± 0.004 |
+
+Mean TTFT falls **33%** against the original loop. Batching accounts for a
+further **20%** reduction after skipping unused logits. Prefill throughput is
+prompt tokens divided by prefill time, distinct from decode throughput. The
+turtle remains at rung 06's measured 6.32 tok/s; this step targets prompt latency.
+
+Same 26-token lighthouse prompt, SmolLM2-135M Q8, two threads, context 512,
+greedy seed 1, and 64 generated tokens (63 timed decode steps). One warmup per
+mode and parent binary, then parent, `0, 1, 8, 8, 1, 0`. Both cores were online,
+the governor was `ondemand`, and the UI stayed active on the same boot. No CPU
+affinity was set. The separately built parent (`a247971`) gave 3.796 s TTFT and
+6.043 decode tok/s in one run.
+
+All seven measured outputs match (`4ea6b63a`), including the parent. Peak RSS
+was 171.16 MiB with batching versus 170.88 MiB for the parent; added Q8 scratch
+storage is 174.6 KiB. The baseline pair varies by 0.37 s, and the first parent
+warmup was slower still. Warmups are saved but excluded; this short comparison
+does not establish a decode speedup or predict longer-prompt performance.
+
+Validation: 19 engine tests pass normally and with ASan/UBSan, plus worker and
+Q8 kernel tests. Batched FP32/Q8 logits and subsequent decode exactly match
+sequential forward passes on host and ARMv7 tablet fixtures, covering prefixes,
+partial chunks, reset, context boundaries, and invalid input. Formatting and
+the ARMv7 build pass. [Data flow and shapes](inference.md#batched-prefill).
 
 ## Memory ceiling
 
