@@ -238,7 +238,7 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
                             lineHeight: 1.35
                             lineHeightMode: Text.ProportionalHeight
                             wrapMode: Text.WordWrap
-                            maximumLineCount: 24
+                            maximumLineCount: 22
                             elide: Text.ElideRight
                         }
 
@@ -267,7 +267,7 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
                         Text {
                             text: "SmolLM2-135M bedtime fine-tune · q8_0 · 2 threads · armv7l"
                             font.family: "Noto Sans Mono"
-                            font.pixelSize: 19
+                            font.pixelSize: 22
                             color: "#000000"
                         }
                         Text {
@@ -284,8 +284,10 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
                                   ? "writing · " + root.wordCount(root.storyText)
                                     + " words · " + root.storyElapsed + "s"
                                   : ""
+                            width: 872
+                            elide: Text.ElideRight
                             font.family: "Noto Sans Mono"
-                            font.pixelSize: 19
+                            font.pixelSize: 26
                             color: "#000000"
                         }
                     }
