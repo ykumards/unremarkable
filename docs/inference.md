@@ -1,59 +1,54 @@
-# One token through the naive engine
+# Inference
 
-Read this alongside [engine.cpp](../src/engine.cpp). The example dimensions are
-SmolLM2-135M's: 30 layers, activation width 576, feed-forward width 1536,
-9 query heads, 3 key/value heads, head width 64, vocabulary size 49152.
+[Engine::forward](../src/engine.cpp) takes a token ID and position, updates the
+KV cache, and returns next-token logits. These examples use SmolLM2-135M:
+30 layers, activation width 576, feed-forward width 1536, 9 query heads,
+3 key/value heads, head width 64, vocabulary size 49152.
 TinyStories follows the same path with different dimensions.
 
-## Three kinds of memory
+## Memory
 
 | Owner | Contents | What survives? |
 | --- | --- | --- |
-| `Model` | The weight payload, FP32 or Q8_0, and read-only matrix views | The whole engine lifetime |
+| `Model` | FP32 or Q8_0 weights and read-only matrix views | The whole engine lifetime |
 | `KVCache` | Each layer's keys and values, `[layer, context, kv_dim]` | Earlier positions in the current sequence |
 | `Scratch` | Residual, normalized input, query, attention output, projected result, gate, up, scores, logits, quantized input | Storage survives; contents are overwritten |
 
-All three have backing storage in process RAM. Cache lines move through the CPU
-cache hierarchy as instructions read and write them. The code owns buffers and
-controls access order; it does not pin a vector to L1 or a matrix to L2.
+All buffers live in process RAM. The CPU caches their contents as needed; the
+code controls access order, not which cache holds each buffer.
 
 For SmolLM2 at context 512, weights occupy about 513 MiB as FP32 or 144 MiB as
-Q8_0, and K/V storage occupies `30 × 512 × 192 × 2 × 4 = 23,592,960` bytes, or
-22.5 MiB. A residual vector is only `576 × 4 = 2304` bytes. Named buffers keep
-their roles visible; `projected` is reused for both residual additions. This
-version uses one extra dim-sized buffer versus the original engine to separate
-normalization from attention output.
+Q8_0. K/V storage occupies `30 × 512 × 192 × 2 × 4 = 23,592,960` bytes, or 22.5 MiB. A residual vector is
+only `576 × 4 = 2304` bytes. `projected` is reused for both residual additions.
 
-## 1. Load once per engine process
+## 1. Load weights
 
 [model.cpp](../src/model.cpp) reads the header, validates the expected payload
 size, allocates one weight buffer, and reads the payload into it. It then binds
-`LayerWeights` and `Matrix` views to portions of that buffer. Views copy pointers
-and dimensions, never the matrices themselves.
+`LayerWeights` and `Matrix` views to portions of that buffer. Each view holds
+a pointer and dimensions; the weights stay in the original buffer.
 
 The on-disk layout groups weights by operation: all layers' Q matrices are stored
 together, then all layers' K matrices, and so on. The loader translates that into
-`model.layers[layer].query`, `.key`, `.value`, etc., once at startup. The forward
-pass therefore needs no checkpoint offset arithmetic.
+`model.layers[layer].query`, `.key`, `.value`, etc., once at startup.
 
-Supported files are legacy llama2.c, tagged UNRK version 1 (FP32), and version 2
-(FP32 or Q8_0) checkpoints. All dimensions and byte counts are checked before
-allocating the weight payload. There is no whole-model read from storage inside
-`forward()`.
+Supported files are legacy llama2.c, UNRK version 1 (FP32), and UNRK version 2
+(FP32 or Q8_0) checkpoints.
+Weights are loaded once per engine process, not on each forward pass.
 
-## 2. Turn text into tokens
+## 2. Tokenize the prompt
 
 [main.cpp](../src/main.cpp) wraps chat prompts when required, then calls the
-[tokenizer](../src/tokenizer.cpp). Tokens are integer IDs, not activation vectors.
+[tokenizer](../src/tokenizer.cpp). Each token is an integer ID.
 The CLI prefills by calling `forward(token, position)` for each prompt token in
-order. This baseline uses the same one-token path for prefill and decode.
+order. Prefill and decode use the same one-token path.
 
 ## 3. Look up the embedding
 
 `embedding_lookup()` copies the selected embedding row into `scratch.residual`,
-expanding it from Q8_0 when needed. For this model that gives `residual[576]`: the
-current token's running activation. Its contents change as it passes through the
-layers.
+expanding Q8_0 weights to FP32 when needed.
+For this model that gives `residual[576]`: the current token's running activation.
+Its contents change as it passes through the layers.
 
 ## 4. Execute one layer
 
@@ -79,10 +74,10 @@ K/V go directly into their final cache slots. Each layer has its own history;
 attention never reads beyond the current position. Query heads share K/V heads
 in groups of three. The keys are cached after RoPE, while values are unchanged.
 
-## Zoom in: one matrix-vector multiplication
+## Matrix-vector multiplication
 
-The `Matrix` argument carries a read-only pointer, row count, and column count.
-Without the prefetch hint added in rung 02, the entire FP32 implementation is:
+The `Matrix` argument carries a read-only pointer, dimensions, and weight format.
+Rung 01 computes each row with one running sum:
 
 ```cpp
 for (int row = 0; row < weight.rows; ++row) {
@@ -96,7 +91,7 @@ for (int row = 0; row < weight.rows; ++row) {
 ```
 
 Every row reuses the same input vector but reads a new contiguous range of
-weights. For Q, the input is 2.25 KiB and the matrix is about 1.27 MiB.
+weights. For FP32 Q, the input is 2.25 KiB and the matrix is about 1.27 MiB.
 On the tablet, the input is small enough for its 32 KiB per-core L1 data cache;
 the matrix exceeds the shared 512 KiB L2. Residency depends on other accesses.
 
@@ -116,48 +111,35 @@ advance, older weight lines can be evicted. The input is repeatedly reused and
 likely to remain cached. Stores update the output through caches; they need not
 be written all the way back to DRAM before the next operation can use them.
 
-Waiting for those misses dominates. At 1.08 tokens/s the loop pulls weights at
-about 40% of the rate one core can stream. Rung 02 therefore walks each row one
-64-byte line (16 floats) at a time and issues `__builtin_prefetch` for the line
-256 bytes ahead, so the next miss is already in flight while the current line is
-summed. The additions keep their order, so results are bit-identical, and decode
-rises to 1.44 tokens/s ([measurements](optimizations.md#measured-02-on-the-tablet-2026-09-12)).
+Rung 02 adds `__builtin_prefetch`: request weights 256 bytes ahead, once per
+16 floats, while summing the current block. Addition order stays unchanged.
 
-Rung 03 then speeds up the arithmetic. With most waits hidden, the single running
-`sum` becomes the limit, because each addition must wait for the one before it.
-NEON instructions multiply four adjacent values at once into four accumulators,
-16 partial sums in all, so the additions overlap and decode reaches 1.75 tokens/s
-([measurements](optimizations.md#measured-03-on-the-tablet-2026-09-12)). Adding
-in a different order makes the logits differ slightly from the scalar loop (at
-most 2e-4 on SmolLM2); building with `-DUNREMARKABLE_SCALAR` restores rung 02's
-loop.
+Rung 03 uses four NEON vectors to hold 16 partial sums. Each multiply handles
+four values; separate sums shorten the dependency chain. Combining them changes
+floating-point addition order, so logits can differ slightly.
+`-DUNREMARKABLE_SCALAR` selects rung 02's FP32 loop.
 
-Rung 04 reads fewer bytes. A Q8_0 matrix stores each row as blocks of 32 int8
-weights with one FP32 scale, and `Engine::project()` first quantizes the input
-into the same blocks. Each block is then an exact integer dot product, scaled by
-both blocks' scales, and the blocks add in FP32. SmolLM2's matrices shrink from
-538 MB to 151 MB, and decode reaches 3.80 tokens/s
-([measurements](optimizations.md#measured-04-on-the-tablet-2026-09-12)).
-Quantization raises WikiText-2 perplexity by 0.6% and changes the generated text
-([accuracy](optimizations.md#accuracy-2026-09-13)).
+Rung 04 stores weights in Q8_0 blocks: 32 int8 values and one FP32 scale.
+`Engine::project()` quantizes the input into the same format, computes integer
+dot products per block, then multiplies by both scales and adds in FP32.
+Norm vectors, the KV cache, and projection outputs stay FP32.
 
-The code has no threads. Normal compiler optimization is enabled; the source is
-not a guarantee about every machine instruction a compiler may generate.
+All four rungs use one thread. See the [measurements](optimizations.md) for speed
+and output comparisons, including [Q8 accuracy](optimizations.md#accuracy-2026-09-13).
 
-## 5. Finish the token, then repeat
+## 5. Sample the next token
 
 After all layers, normalize the residual in place and multiply by the classifier
 matrix `[49152, 576]`. The result is `logits[49152]`: one score per vocabulary ID.
-`forward()` returns a span borrowing that output buffer.
+`forward()` returns a span over this buffer; the next call overwrites it.
 
 The [sampler](../src/sampler.cpp) selects an ID (argmax for greedy decoding).
 The tokenizer decodes it to text, which the CLI prints. Unless generation stops,
 that chosen ID becomes the next call's input at the next position.
 
-The KV cache avoids running previous tokens through the network again, but the
-new token still uses all the projection weights. SmolLM2 traverses about 538 MB
-of FP32 matrix weights per token, or 151 MB as Q8_0; most cannot survive in CPU
-caches between passes. KV reads grow with the length of the sequence.
+The KV cache saves earlier tokens' keys and values. Each new token still reads
+the projection weights: about 538 MB per token for SmolLM2 in FP32, or 151 MB
+in Q8_0. Both exceed the CPU cache capacity. KV reads grow with the length of the sequence.
 
 `reset()` restarts position counting. We keep allocations and weights, overwrite
 each new K/V slot before use, and never read the old sequence's later slots.

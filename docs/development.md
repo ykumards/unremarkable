@@ -4,7 +4,7 @@
 | --- | --- |
 | [model.h](../src/model.h), [model.cpp](../src/model.cpp) | Checkpoint loading, immutable weight views, tensor dimensions |
 | [engine.h](../src/engine.h), [engine.cpp](../src/engine.cpp) | Scratch and KV ownership, reset, one-token forward pass |
-| [kernels.h](../src/kernels.h), [kernels.cpp](../src/kernels.cpp) | FP32 numerical loops and buffer contracts |
+| [kernels.h](../src/kernels.h), [kernels.cpp](../src/kernels.cpp) | FP32 and Q8 kernels and buffer contracts |
 | [sampler.h](../src/sampler.h), [sampler.cpp](../src/sampler.cpp) | Greedy or temperature/top-p next-token selection |
 | [tokenizer.cpp](../src/tokenizer.cpp) | Legacy and byte-level BPE tokenization |
 | [main.cpp](../src/main.cpp) | Arguments, prompt formatting, prefill/decode loop, timing |
@@ -25,10 +25,10 @@ make tablet        # produces build/unremarkable-armv7
 ```
 
 The executable produced by plain `make` is for the host. The ARMv7 build targets
-Cortex-A7 and links the C++ runtime statically; the scalar source uses no NEON
-intrinsics. Copy the executable and matching model/tokenizer to a directory under
+Cortex-A7, enables the NEON kernel, and links the C++ runtime statically. Copy the
+executable and matching model/tokenizer to a directory under
 `/home/root` on the tablet. Start with the small TinyStories model.
 
 Output text goes to stdout and timing JSON to stderr. The full model is loaded
-into RAM once per process. There is no GPU transfer, mmap-based weight access,
-quantization, worker pool, or batched prefill in this milestone.
+into RAM once per process. FP32 and Q8 checkpoints are supported. Inference uses one CPU
+thread and processes one token at a time.

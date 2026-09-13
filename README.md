@@ -23,12 +23,11 @@ memory-only ceiling. [Calculation](https://github.com/ykumards/unremarkable/blob
 · [SIMD runs](docs/optimizations.md#measured-03-on-the-tablet-2026-09-12)
 · [Q8 run](docs/optimizations.md#measured-04-on-the-tablet-2026-09-12).
 
-## Start reading
+## Code and docs
 
-1. [One token, end to end](docs/inference.md): data flow, shapes, and memory lifetimes.
-2. [The forward pass](src/engine.cpp): every operation in execution order.
-3. [The kernels](src/kernels.cpp): the actual arithmetic loops.
-4. [The optimization ladder](docs/optimizations.md): how later stages change this baseline.
+- [Inference](docs/inference.md): follow a token through memory and the model.
+- [Forward pass](src/engine.cpp) · [Kernels](src/kernels.cpp)
+- [Optimization ladder](docs/optimizations.md): changes, measurements, and diffs.
 
 ## Run locally
 
