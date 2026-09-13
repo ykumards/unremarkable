@@ -237,6 +237,23 @@ class EngineTests(unittest.TestCase):
                             for a, b in zip(actual, expected):
                                 self.assertAlmostEqual(a, b, delta=2e-5)
 
+    def test_threads_preserve_logits_and_reset(self):
+        with tempfile.TemporaryDirectory() as directory:
+            model = Path(directory) / "threaded.bin"
+            for quantized in (False, True):
+                for shared in (False, True):
+                    with self.subTest(quantized=quantized, shared=shared):
+                        # Odd row counts, Q8 tails, and projections below/at the split threshold.
+                        reference_model(model, shared, 1, tagged=True, quantize=quantized,
+                                        dim=64, hidden=73)
+                        commands = [[str(PROBE), "--threads", str(threads), str(model),
+                                     "1", "19", "43", "7"] for threads in (1, 2)]
+                        runs = [subprocess.run(cmd, capture_output=True, timeout=60)
+                                for cmd in commands]
+                        for run in runs:
+                            self.assertEqual(run.returncode, 0, run.stderr.decode())
+                        self.assertEqual(runs[0].stdout, runs[1].stdout)
+
     def test_tagged_format_and_rope_base(self):
         """The tagged header carries its own RoPE base and drops the legacy tables."""
         with tempfile.TemporaryDirectory() as directory:
@@ -371,7 +388,7 @@ class EngineTests(unittest.TestCase):
         for args in (("-n", 0), ("-n", "12oops"), ("-n", 2**40),
                      ("-t", "nan"), ("-t", "inf"), ("-t", -1), ("-s", 0),
                      ("-p", 1.1), ("-c", 513), ("-i", "hello", "-c", 1),
-                     ("-x", 1), ("-n",)):
+                     ("-x", 1), ("-j", 0), ("-j", 3), ("-n",)):
             with self.subTest(args=args):
                 self.run_engine(*args, ok=False)
 

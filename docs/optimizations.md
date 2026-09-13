@@ -13,7 +13,7 @@ git diff rung-02 rung-03 -- src/
 | [02: prefetch](https://github.com/ykumards/unremarkable/tree/rung-02) | Request weights 256 bytes ahead | Memory waits | 1.44 |
 | [03: SIMD](https://github.com/ykumards/unremarkable/tree/rung-03) | Four NEON vectors, 16 partial sums | Arithmetic | 1.75 |
 | [04: Q8](https://github.com/ykumards/unremarkable/tree/rung-04) | 32 int8 weights per scale | Memory traffic and size | 3.80 |
-| Two threads | Split projection rows across cores | Parallel work and coordination costs | |
+| [05: two threads](https://github.com/ykumards/unremarkable/tree/milestone/05-q8-threads) | Split projection rows across cores | Parallel execution | 5.76 |
 | Six-op dot product | Pair integer products before widening | Instructions inside each Q8 group | |
 
 The remaining steps exist on [`optimized`](https://github.com/ykumards/unremarkable/tree/optimized).
@@ -168,3 +168,34 @@ the exporter uses limits of 7 instead of 127 in `quantize_q8_0`: 15 levels
 Scores come from the host build, where Q8_0 logits match `optimized` byte for
 byte. SmolLM2 is instruction-tuned and has likely seen Wikipedia, so its absolute
 perplexity here says less than the gap between the two checkpoints.
+
+## Measured: 05 on the tablet (2026-09-13)
+
+[Raw runs and command](../runs/q8-threads-20260913b/) · [PR #5](https://github.com/ykumards/unremarkable/pull/5).
+SmolLM2-135M Q8, context 512, 26 prompt tokens, greedy seed 1, 64 generated tokens
+(63 timed decode steps). The UI stayed running, both cores were online, and the
+CPU governor was `ondemand`. No CPU affinity was set.
+
+One warmup per configuration, then rung 04 as a reference and an interleaved
+one-thread, two-thread, two-thread, one-thread comparison:
+
+| Configuration | Runs (tok/s) | Mean ± sample std | Mean TTFT | Peak RSS |
+| --- | --- | ---: | ---: | ---: |
+| Rung 04 | 3.801 | 3.801 (one run) | 6.39 s | 170.89 MiB |
+| Rung 05, `-j 1` | 3.818, 3.820 | 3.819 ± 0.001 | 6.39 s | 170.90 MiB |
+| **Rung 05, `-j 2`** | 5.727, 5.792 | **5.760 ± 0.046** | **3.98 s** | 170.90 MiB |
+
+Two threads improve decode by **1.51×** and reduce TTFT by **38%** in this short
+comparison. All five measured outputs are byte-identical (`4ea6b63a`); full
+binary/model hashes and per-run timings are saved with the runs.
+
+`Engine::project()` quantizes the input once, then assigns whole rows to the
+caller and one persistent worker. Each row keeps the same dot-product order.
+The worker finishes before the input buffer is reused. Jobs under 64 rows stay
+on the caller; `-j 1` creates no worker. Quantization and the other operators
+remain serial. SmolLM2 has 211 projections per token, each with a completion wait.
+
+Validation: 17 engine tests and the worker test pass normally and with
+ASan/UBSan; the worker test also passes ThreadSanitizer. FP32 and Q8 logits match
+between thread counts, including reset, odd row counts, and padded Q8 tails.
+ARMv7 build and formatting pass. The kernel arithmetic is unchanged from rung 04.

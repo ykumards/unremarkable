@@ -124,8 +124,22 @@ Rung 04 stores weights in Q8_0 blocks: 32 int8 values and one FP32 scale.
 dot products per block, then multiplies by both scales and adds in FP32.
 Norm vectors, the KV cache, and projection outputs stay FP32.
 
-All four rungs use one thread. See the [measurements](optimizations.md) for speed
-and output comparisons, including [Q8 accuracy](optimizations.md#accuracy-2026-09-13).
+Rungs 01–04 use one thread. Rung 05 adds `-j 2`:
+
+1. `Engine::project()` quantizes the input once for Q8.
+2. The caller computes rows `[0, rows/2)`; a persistent worker computes the rest.
+3. The caller waits for the worker before returning or reusing the input buffer.
+
+Both threads read the same weights and input. Each writes separate output rows;
+no matrix or activation copy is needed. Row boundaries include the full Q8 blocks
+and scales. Each dot product keeps its addition order, so logits match `-j 1`.
+Projections with fewer than 64 rows stay on the caller. Quantization, attention,
+norms, RoPE, and sampling also stay on the caller.
+
+[worker.cpp](../src/worker.cpp) contains the wake/wait logic. The worker is created
+once per engine and joined before its buffers are destroyed. `-j 1` (the default)
+creates no worker. See the [measurements](optimizations.md) for speed and output
+comparisons, including [Q8 accuracy](optimizations.md#accuracy-2026-09-13).
 
 ## 5. Sample the next token
 

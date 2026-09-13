@@ -48,11 +48,12 @@ Scratch::Scratch(const Config& config)
       quantized(config.format == Format::kQ8_0 ? q8_blocks(std::max(config.dim, config.hidden_dim))
                                                : 0) {}
 
-Engine::Engine(const std::string& checkpoint, int context)
+Engine::Engine(const std::string& checkpoint, int context, int threads)
     : model_(checkpoint),
       config_(with_context(model_.config, context)),
       cache_(config_, config_.seq_len),
-      scratch_(config_) {}
+      scratch_(config_),
+      worker_(threads) {}
 
 void Engine::reset() {
   // Old cache entries need no clearing: forward overwrites each position before
@@ -61,12 +62,20 @@ void Engine::reset() {
 }
 
 void Engine::project(const float* input, const Matrix& weight, float* output) {
-  if (weight.format == Format::kQ8_0) {
+  const bool quantized = weight.format == Format::kQ8_0;
+  if (quantized) {
     quantize_q8(input, weight.columns, scratch_.quantized.data());
-    matvec_q8(scratch_.quantized.data(), weight, output);
-  } else {
-    matvec(input, weight, output);
   }
+  const size_t stride = row_bytes(weight.format, weight.columns);
+  worker_.run(weight.rows, [&](int begin, int end) {
+    Matrix rows{weight.data + static_cast<size_t>(begin) * stride, end - begin, weight.columns,
+                weight.format};
+    if (quantized) {
+      matvec_q8(scratch_.quantized.data(), rows, output + begin);
+    } else {
+      matvec(input, rows, output + begin);
+    }
+  });
 }
 
 std::span<float> Engine::forward(int token, int position) {

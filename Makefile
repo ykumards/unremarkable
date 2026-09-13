@@ -1,11 +1,11 @@
 CXX ?= c++
 CXXFLAGS ?= -O2 -std=c++23 -Wall -Wextra -Wpedantic -ffp-contract=off
 CPPFLAGS ?= -Isrc -D_FILE_OFFSET_BITS=64
-LDLIBS = -lm
+LDLIBS = -lm -pthread
 PYTHON ?= python3
-SOURCES = src/main.cpp src/engine.cpp src/model.cpp src/sampler.cpp src/kernels.cpp src/tokenizer.cpp
-HEADERS = src/engine.h src/model.h src/sampler.h src/kernels.h src/tokenizer.h
-CORE = src/engine.cpp src/model.cpp src/sampler.cpp src/kernels.cpp src/tokenizer.cpp
+SOURCES = src/main.cpp src/engine.cpp src/model.cpp src/sampler.cpp src/worker.cpp src/kernels.cpp src/tokenizer.cpp
+HEADERS = src/engine.h src/model.h src/sampler.h src/worker.h src/kernels.h src/tokenizer.h
+CORE = src/engine.cpp src/model.cpp src/sampler.cpp src/worker.cpp src/kernels.cpp src/tokenizer.cpp
 
 .PHONY: all test sanitize models test-models chat-model chat-model-q8 accuracy tablet tablet-image
 all: build/unremarkable
@@ -75,17 +75,26 @@ build/probe-sanitize: tests/probe.cpp $(CORE) $(HEADERS) Makefile | build
 	$(CXX) $(CPPFLAGS) -O1 -g -std=c++23 -Wall -Wextra -ffp-contract=off \
 		-fsanitize=address,undefined -fno-omit-frame-pointer tests/probe.cpp $(CORE) $(LDLIBS) -o $@
 
-test: build/unremarkable build/probe
+test: build/unremarkable build/probe build/test-worker
+	./build/test-worker
 	$(PYTHON) tests/test_engine.py --binary build/unremarkable --probe build/probe
 
-sanitize: build/unremarkable-sanitize build/probe-sanitize
+sanitize: build/unremarkable-sanitize build/probe-sanitize build/test-worker-sanitize
+	./build/test-worker-sanitize
 	$(PYTHON) tests/test_engine.py --binary build/unremarkable-sanitize --probe build/probe-sanitize
+
+build/test-worker: tests/worker.cpp src/worker.cpp src/worker.h Makefile | build
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) tests/worker.cpp src/worker.cpp $(LDLIBS) -o $@
+
+build/test-worker-sanitize: tests/worker.cpp src/worker.cpp src/worker.h Makefile | build
+	$(CXX) $(CPPFLAGS) -O1 -g -std=c++23 -fsanitize=address,undefined \
+		-fno-omit-frame-pointer tests/worker.cpp src/worker.cpp $(LDLIBS) -o $@
 
 .PHONY: check check-sanitize format check-format
 check: test
 check-sanitize: sanitize
 CLANG_FORMAT ?= $(firstword $(shell command -v clang-format 2>/dev/null) $(wildcard /opt/homebrew/opt/llvm@21/bin/clang-format /opt/homebrew/opt/llvm/bin/clang-format) clang-format)
 format:
-	$(CLANG_FORMAT) -i $(SOURCES) $(HEADERS) tests/probe.cpp tools/perplexity.cpp
+	$(CLANG_FORMAT) -i $(SOURCES) $(HEADERS) tests/probe.cpp tests/worker.cpp tools/perplexity.cpp
 check-format:
-	$(CLANG_FORMAT) --dry-run --Werror $(SOURCES) $(HEADERS) tests/probe.cpp tools/perplexity.cpp
+	$(CLANG_FORMAT) --dry-run --Werror $(SOURCES) $(HEADERS) tests/probe.cpp tests/worker.cpp tools/perplexity.cpp

@@ -14,14 +14,15 @@ TinyStories 15M and SmolLM2-135M-Instruct, with optional tablet UI patches.
 
 ## Ceiling
 
-![3.80 tok/s toward a 17.9 tok/s target](assets/tps-progress.svg?v=3.80)
+![5.76 tok/s toward a 17.9 tok/s target](assets/tps-progress.svg?v=5.76)
 
 SmolLM2-135M, Q8, two cores: **2.708 GB/s ÷ 0.151 GB/token ≈ 17.9 tok/s**
 memory-only ceiling. [Calculation](https://github.com/ykumards/unremarkable/blob/optimized/docs/performance.md#memory-roofline-2026-09-10)
 · [FP32 baseline runs](docs/optimizations.md#measured-01-on-the-tablet-2026-09-12)
 · [Prefetch runs](docs/optimizations.md#measured-02-on-the-tablet-2026-09-12)
 · [SIMD runs](docs/optimizations.md#measured-03-on-the-tablet-2026-09-12)
-· [Q8 run](docs/optimizations.md#measured-04-on-the-tablet-2026-09-12).
+· [Q8 run](docs/optimizations.md#measured-04-on-the-tablet-2026-09-12)
+· [Two-thread runs](docs/optimizations.md#measured-05-on-the-tablet-2026-09-13).
 
 ## Code and docs
 
@@ -40,7 +41,7 @@ make models
 ```
 
 For SmolLM2, run `make chat-model-q8` (needs numpy), then use
-`models/smollm2-135m-q8.bin` with `-z models/smollm2-135m-q8.tok -c 512`; it needs
+`models/smollm2-135m-q8.bin` with `-z models/smollm2-135m-q8.tok -c 512 -j 2`; it needs
 about 171 MiB. `make chat-model` writes the 538 MiB FP32 checkpoint the first three
 rungs were measured on; on the tablet it can exhaust memory while the UI runs.
 
