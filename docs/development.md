@@ -49,6 +49,22 @@ two threads; `-j 1` is the default. `-b 8` batches up to eight prompt tokens;
 `-b 1` skips unused logits without batching, and `-b 0` selects the original
 prefill loop for comparison. Decode still processes one token at a time.
 
+## Bedtime stories on the tablet
+
+Circle a diary entry, tap the zzz button in the selection menu, and the
+[fine-tuned model](../train/README.md) writes a short bedtime story about the day.
+`device/unremarkable-selection.qmd` adds the button through xovi; it runs the
+tablet's handwriting recognizer and passes the text to `ask-bg.sh`. In
+`/home/root/unremarkable` the tablet needs:
+
+```
+unremarkable          build/unremarkable-armv7
+ask.sh, ask-bg.sh     device/
+zzz.svg               device/, the button icon
+models/diary-q8.bin   train/out/final exported with tools/export_hf.py -q q8_0
+models/diary-q8.tok
+```
+
 ## Profiling
 
 ```sh
