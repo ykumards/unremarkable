@@ -17,8 +17,17 @@ AFFECT /qml/common/SceneSelectionHandler.qml
                 id: askStoryButton
                 focusPolicy: Qt.NoFocus
                 type: tools.type
-                iconSource: "qrc:/ark/icons/open_book"
+                iconSource: ""
                 onClicked: selectionRoot.askStory()
+
+                // Menu icons only load from firmware resources; draw ours on top.
+                Image {
+                    anchors.centerIn: parent
+                    width: askStoryButton.tokens?.content?.icon?.idle.sizing ?? 48
+                    height: width
+                    sourceSize: Qt.size(width, height)
+                    source: "file:///home/root/unremarkable/sleeping-cat.svg"
+                }
             }
         }
     END TRAVERSE
