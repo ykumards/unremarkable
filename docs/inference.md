@@ -124,6 +124,16 @@ Rung 04 stores weights in Q8_0 blocks: 32 int8 values and one FP32 scale.
 dot products per block, then multiplies by both scales and adds in FP32.
 Norm vectors, the KV cache, and projection outputs stay FP32.
 
+Rung 06 changes the integer dot product inside each Q8 block. It uses two
+`vmull_s8` and two `vmlal_s8` instructions to form pairs of products in int16,
+then one `vpaddlq_s16` and one `vpadalq_s16` to sum into int32. That is six
+arithmetic instructions instead of eight, excluding loads, the final lane sum,
+and scale application. The FP32 accumulation order stays unchanged.
+
+The largest pair has magnitude `2 × 128 × 127 = 32512`, within int16. This relies
+on activations being in `[-127, 127]`, as produced by `quantize_q8`; weights may
+include `-128`.
+
 Rungs 01–04 use one thread. Rung 05 adds `-j 2`:
 
 1. `Engine::project()` quantizes the input once for Q8.

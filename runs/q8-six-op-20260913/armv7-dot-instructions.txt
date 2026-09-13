@@ -1,0 +1,6 @@
+vmull.s8	q8, d24, d26
+vmull.s8	q9, d20, d22
+vmlal.s8	q8, d25, d27
+vmlal.s8	q9, d21, d23
+vpaddl.s16	q8, q8
+vpadal.s16	q8, q9
