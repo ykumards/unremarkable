@@ -49,8 +49,7 @@ void causal_attention(const float* query, const float* key_cache, const float* v
                       int n_heads, int n_kv_heads, int head_size, int context, int position,
                       float* scores, float* output);
 
-// gate[i] = silu(gate[i]) * up[i]. The two buffers are [size]. On NEON, exp is a
-// polynomial approximation within a few ulp of std::exp.
+// gate[i] = silu(gate[i]) * up[i]. The two buffers are [size].
 void swiglu_inplace(const float* up, int size, float* gate);
 
 // output[i] += input[i]. Both buffers are [size]; exact aliasing is allowed.

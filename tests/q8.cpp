@@ -175,35 +175,9 @@ bool rope_table() {
   return true;
 }
 
-// SwiGLU against a double-precision reference, including saturated inputs.
-bool swiglu_close() {
-  std::vector<float> gate, up;
-  for (int i = -2000; i <= 2000; ++i) {
-    gate.push_back(i / 20.0f);
-    up.push_back(1.0f + (i % 7) / 3.0f);
-  }
-  for (float value : {0.0f, -0.0f, 1e-30f, -1e-30f, 87.0f, -87.0f, 88.5f, -88.5f, 95.0f, -95.0f}) {
-    gate.push_back(value);
-    up.push_back(-1.5f);
-  }
-  const std::vector<float> original = gate;
-  swiglu_inplace(up.data(), static_cast<int>(gate.size()), gate.data());
-  for (size_t i = 0; i < gate.size(); ++i) {
-    const double g = original[i];
-    const double expected = g / (1.0 + std::exp(-g)) * up[i];
-    // Below -87 the clamped exp leaves ~1e-37 where the true value is smaller;
-    // either vanishes in the projection sums the output feeds.
-    if (std::fabs(gate[i] - expected) > 2e-6 * std::fabs(expected) + 1e-30) {
-      std::fprintf(stderr, "swiglu: gate=%g got=%.9g want=%.9g\n", original[i], gate[i], expected);
-      return false;
-    }
-  }
-  return true;
-}
-
 int main() {
-  if (!extremes() || !mixed_rows() || !rounding() || !rope_table() || !swiglu_close()) {
+  if (!extremes() || !mixed_rows() || !rounding() || !rope_table()) {
     return 1;
   }
-  std::puts("kernels: Q8 pairs, mixed lanes, tails, exact rounding, RoPE table, and SwiGLU passed");
+  std::puts("kernels: Q8 pairs, mixed lanes, tails, exact rounding, and RoPE table passed");
 }

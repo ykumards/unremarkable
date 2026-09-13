@@ -143,27 +143,6 @@ void quantize_block_neon(const float* input, Q8Block& block) {
   vst1q_s8(block.values + 16, vcombine_s8(vmovn_s16(narrowed[2]), vmovn_s16(narrowed[3])));
 }
 
-// e^x = 2^n * e^r with |r| <= ln(2) / 2; Cephes polynomial for e^r. Inputs are
-// clamped so that 2^n stays a normal float.
-float32x4_t exp_neon(float32x4_t x) {
-  x = vminq_f32(vmaxq_f32(x, vdupq_n_f32(-87.3f)), vdupq_n_f32(88.3f));
-  const float32x4_t scaled = vaddq_f32(vmulq_n_f32(x, 1.44269504088896341f), vdupq_n_f32(0.5f));
-  int32x4_t n = vcvtq_s32_f32(scaled);
-  // Truncation rounds negative values up; step back to the floor.
-  n = vaddq_s32(n, vreinterpretq_s32_u32(vcgtq_f32(vcvtq_f32_s32(n), scaled)));
-  const float32x4_t whole = vcvtq_f32_s32(n);
-  float32x4_t r = vsubq_f32(x, vmulq_n_f32(whole, 0.693359375f));
-  r = vsubq_f32(r, vmulq_n_f32(whole, -2.12194440e-4f));
-  float32x4_t y = vdupq_n_f32(1.9875691500e-4f);
-  y = vaddq_f32(vmulq_f32(y, r), vdupq_n_f32(1.3981999507e-3f));
-  y = vaddq_f32(vmulq_f32(y, r), vdupq_n_f32(8.3334519073e-3f));
-  y = vaddq_f32(vmulq_f32(y, r), vdupq_n_f32(4.1665795894e-2f));
-  y = vaddq_f32(vmulq_f32(y, r), vdupq_n_f32(1.6666665459e-1f));
-  y = vaddq_f32(vmulq_f32(y, r), vdupq_n_f32(5.0000001201e-1f));
-  y = vaddq_f32(vaddq_f32(vmulq_f32(y, vmulq_f32(r, r)), r), vdupq_n_f32(1.0f));
-  const int32x4_t exponent = vshlq_n_s32(vaddq_s32(n, vdupq_n_s32(127)), 23);
-  return vmulq_f32(y, vreinterpretq_f32_s32(exponent));
-}
 #endif
 
 }  // namespace
@@ -285,8 +264,9 @@ void rope_angles(int position, int head_size, float theta, float* cosines, float
   for (int pair = 0; pair < head_size / 2; pair++) {
     const float frequency = 1.0f / std::pow(theta, 2 * pair / static_cast<float>(head_size));
     const float angle = position * frequency;
-    cosines[pair] = std::cos(angle);
-    sines[pair] = std::sin(angle);
+    const float cosine = std::cos(angle), sine = std::sin(angle);
+    cosines[pair] = cosine;
+    sines[pair] = sine;
   }
 }
 
@@ -342,19 +322,7 @@ void causal_attention(const float* query, const float* key_cache, const float* v
 }
 
 void swiglu_inplace(const float* up, int size, float* gate) {
-  int i = 0;
-#if defined(__ARM_NEON) && !defined(UNREMARKABLE_SCALAR)
-  for (; i + 4 <= size; i += 4) {
-    const float32x4_t value = vld1q_f32(gate + i);
-    const float32x4_t denominator = vaddq_f32(vdupq_n_f32(1.0f), exp_neon(vnegq_f32(value)));
-    // Two Newton steps refine the 8-bit reciprocal estimate to full precision.
-    float32x4_t reciprocal = vrecpeq_f32(denominator);
-    reciprocal = vmulq_f32(vrecpsq_f32(denominator, reciprocal), reciprocal);
-    reciprocal = vmulq_f32(vrecpsq_f32(denominator, reciprocal), reciprocal);
-    vst1q_f32(gate + i, vmulq_f32(vmulq_f32(value, reciprocal), vld1q_f32(up + i)));
-  }
-#endif
-  for (; i < size; i++) {
+  for (int i = 0; i < size; i++) {
     float value = gate[i];
     value *= (1.0f / (1.0f + std::exp(-value)));
     value *= up[i];
