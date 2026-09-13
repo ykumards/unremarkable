@@ -17,7 +17,7 @@ AFFECT /qml/common/SceneSelectionHandler.qml
                 id: askStoryButton
                 focusPolicy: Qt.NoFocus
                 type: tools.type
-                iconSource: "file:///home/root/unremarkable/zzz.svg"
+                iconSource: "qrc:/ark/icons/open_book"
                 onClicked: selectionRoot.askStory()
             }
         }
@@ -126,6 +126,16 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
                 storyTimer.start();
             }
 
+            // Recognition runs in reMarkable's cloud; offline it returns nothing.
+            function storyFailed() {
+                root.storyEntry = "";
+                root.storyText = "";
+                root.storyMeta = null;
+                root.storyStatus = "failed";
+                storyPopup.parent = storyTopLevel();
+                storyPopup.open();
+            }
+
             Timer {
                 id: storyTimer
                 interval: 2000
@@ -156,7 +166,9 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
                         spacing: 0
 
                         Text {
-                            text: root.storyStatus === "running"
+                            text: root.storyStatus === "failed"
+                                  ? "Couldn’t read the page"
+                                  : root.storyStatus === "running"
                                   ? "Writing a bedtime story…"
                                   : "A bedtime story"
                             font.family: "EB Garamond"
@@ -164,6 +176,7 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
                             color: "#000000"
                         }
                         Text {
+                            visible: root.storyEntry !== ""
                             text: "from “" + root.storyEntry + "”"
                             font.family: "EB Garamond"
                             font.italic: true
@@ -180,7 +193,10 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
 
                         Text {
                             width: 872
-                            text: root.storyText === ""
+                            text: root.storyStatus === "failed"
+                                  ? "Handwriting recognition runs on reMarkable’s servers, "
+                                    + "so the tablet needs Wi-Fi. Connect and try again."
+                                  : root.storyText === ""
                                   ? "· · ·"
                                   : root.stripQuotes(root.storyText)
                             font.family: "EB Garamond"
@@ -216,6 +232,7 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
                                     + " tok/s  ·  " + root.storyMeta.generated_tokens
                                     + " tok  ·  " + Math.round(root.storyMeta.peak_rss_mib)
                                     + " MiB rss"
+                                  : root.storyStatus === "failed" ? ""
                                   : "generating · " + root.wordCount(root.storyText)
                                     + " words"
                             font.family: "Noto Sans Mono"
@@ -244,6 +261,8 @@ if (askingStory) {
     askingStory = false;
     if (entry !== "") {
         root.askStoryAbout(entry);
+    } else {
+        root.storyFailed();
     }
     return;
 }

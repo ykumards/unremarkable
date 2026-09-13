@@ -51,16 +51,17 @@ prefill loop for comparison. Decode still processes one token at a time.
 
 ## Bedtime stories on the tablet
 
-Circle a diary entry, tap the zzz button in the selection menu, and the
+Circle a diary entry, tap the open-book button in the selection menu, and the
 [fine-tuned model](../train/README.md) writes a short bedtime story about the day.
 `device/unremarkable-selection.qmd` adds the button through xovi; it runs the
-tablet's handwriting recognizer and passes the text to `ask-bg.sh`. In
+tablet's handwriting recognizer and passes the text to `ask-bg.sh`. Recognition
+runs on reMarkable's servers, so it needs internet; the story does not. Menu icons
+must come from the firmware's `qrc:/ark/icons/`, not files. In
 `/home/root/unremarkable` the tablet needs:
 
 ```
 unremarkable          build/unremarkable-armv7
 ask.sh, ask-bg.sh     device/
-zzz.svg               device/, the button icon
 models/diary-q8.bin   train/out/final exported with tools/export_hf.py -q q8_0
 models/diary-q8.tok
 ```
