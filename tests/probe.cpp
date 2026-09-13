@@ -11,6 +11,12 @@
 
 int main(int argc, char** argv) {
   try {
+    int threads = 1;
+    if (argc > 3 && std::string(argv[1]) == "--threads") {
+      threads = std::stoi(argv[2]);
+      argc -= 2;
+      argv += 2;
+    }
     if (argc < 3) {
       throw std::runtime_error("usage: probe MODEL TOKEN... | probe tokenize TOK VOCAB TEXT");
     }
@@ -26,7 +32,7 @@ int main(int argc, char** argv) {
       std::cout << '\n';
       return 0;
     }
-    unremarkable::Engine engine(argv[1]);
+    unremarkable::Engine engine(argv[1], 0, threads);
     std::vector<float> first;
     std::cout << std::setprecision(9);
     for (int i = 2; i < argc; i++) {

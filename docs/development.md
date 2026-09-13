@@ -5,6 +5,7 @@
 | [model.h](../src/model.h), [model.cpp](../src/model.cpp) | Checkpoint loading, immutable weight views, tensor dimensions |
 | [engine.h](../src/engine.h), [engine.cpp](../src/engine.cpp) | Scratch and KV ownership, reset, one-token forward pass |
 | [kernels.h](../src/kernels.h), [kernels.cpp](../src/kernels.cpp) | FP32 and Q8 kernels and buffer contracts |
+| [worker.h](../src/worker.h), [worker.cpp](../src/worker.cpp) | Split projection rows between the caller and one persistent worker |
 | [sampler.h](../src/sampler.h), [sampler.cpp](../src/sampler.cpp) | Greedy or temperature/top-p next-token selection |
 | [tokenizer.cpp](../src/tokenizer.cpp) | Legacy and byte-level BPE tokenization |
 | [main.cpp](../src/main.cpp) | Arguments, prompt formatting, prefill/decode loop, timing |
@@ -12,6 +13,8 @@
 `make check` runs the independent forward oracle, published greedy-output
 fixture, tokenizer checks, context/reset checks, sampling checks, and malformed
 input checks. `make check-sanitize` adds address/undefined-behavior sanitizers.
+The worker tests cover row coverage, repeated jobs, shutdown, and thread limits;
+the forward tests compare one-thread and two-thread logits and reset.
 `make check-format` enforces the repository's 100-column C++ style.
 
 For TinyStories fixtures run `make test-models` first. Tokenizer parity tests also
@@ -30,5 +33,5 @@ executable and matching model/tokenizer to a directory under
 `/home/root` on the tablet. Start with the small TinyStories model.
 
 Output text goes to stdout and timing JSON to stderr. The full model is loaded
-into RAM once per process. FP32 and Q8 checkpoints are supported. Inference uses one CPU
-thread and processes one token at a time.
+into RAM once per process. FP32 and Q8 checkpoints are supported. `-j 2` splits projection rows across
+two threads; `-j 1` is the default. Tokens are still processed one at a time.

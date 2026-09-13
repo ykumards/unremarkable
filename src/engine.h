@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "model.h"
+#include "worker.h"
 
 namespace unremarkable {
 
@@ -39,12 +40,13 @@ struct Scratch {
 
 class Engine {
  public:
-  explicit Engine(const std::string& checkpoint, int context = 0);
+  explicit Engine(const std::string& checkpoint, int context = 0, int threads = 1);
   Engine(const Engine&) = delete;
   Engine& operator=(const Engine&) = delete;
 
   const Config& config() const { return config_; }
   size_t weight_bytes() const { return model_.weight_bytes(); }
+  int threads() const { return worker_.threads(); }
   size_t kv_bytes() const { return cache_.bytes(); }
 
   // One token in, next-token scores out. Positions must be consecutive from 0.
@@ -56,10 +58,11 @@ class Engine {
   // output = weight * input, quantizing the input first for Q8_0 weights.
   void project(const float* input, const Matrix& weight, float* output);
 
-  Model model_;      // Permanent learned weights.
-  Config config_;    // Model dimensions, with the selected context capacity.
-  KVCache cache_;    // History of the current sequence.
-  Scratch scratch_;  // Temporary calculations for the current token.
+  Model model_;       // Permanent learned weights.
+  Config config_;     // Model dimensions, with the selected context capacity.
+  KVCache cache_;     // History of the current sequence.
+  Scratch scratch_;   // Temporary calculations for the current token.
+  RowWorker worker_;  // Joined before scratch and model storage are destroyed.
   int next_position_ = 0;
 };
 

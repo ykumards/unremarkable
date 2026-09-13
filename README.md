@@ -40,7 +40,7 @@ make models
 ```
 
 For SmolLM2, run `make chat-model-q8` (needs numpy), then use
-`models/smollm2-135m-q8.bin` with `-z models/smollm2-135m-q8.tok -c 512`; it needs
+`models/smollm2-135m-q8.bin` with `-z models/smollm2-135m-q8.tok -c 512 -j 2`; it needs
 about 171 MiB. `make chat-model` writes the 538 MiB FP32 checkpoint the first three
 rungs were measured on; on the tablet it can exhaust memory while the UI runs.
 
