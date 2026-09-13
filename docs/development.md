@@ -49,6 +49,25 @@ two threads; `-j 1` is the default. `-b 8` batches up to eight prompt tokens;
 `-b 1` skips unused logits without batching, and `-b 0` selects the original
 prefill loop for comparison. Decode still processes one token at a time.
 
+## Bedtime stories on the tablet
+
+Circle something in your notebook, tap the sleeping-cat button in the selection menu, and the
+[fine-tuned model](../train/README.md) writes a short bedtime story about the day.
+`device/unremarkable-selection.qmd` adds the button through xovi; it runs the
+tablet's handwriting recognizer and passes the text to `ask-bg.sh`. Recognition
+runs on reMarkable's servers, so it needs internet; the story does not. The stock
+menu button only loads firmware icons, so the patch draws `sleeping-cat.svg` on
+top of it. In
+`/home/root/unremarkable` the tablet needs:
+
+```
+unremarkable          build/unremarkable-armv7
+ask.sh, ask-bg.sh     device/
+sleeping-cat.svg      device/, the button icon
+models/story-q8.bin   train/out/final exported with tools/export_hf.py -q q8_0
+models/story-q8.tok
+```
+
 ## Profiling
 
 ```sh

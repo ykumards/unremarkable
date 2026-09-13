@@ -1,23 +1,33 @@
-; unremarkable - a short poem about whatever you circle on the page.
+; unremarkable - a bedtime story from the diary entry you circle on the page.
 ; Adds a button to the handwriting selection menu, runs reMarkable's own
 ; recognizer over the selection, and feeds the text to the local model.
+; Requires: qt-resource-rebuilder, qt-command-executor.
 
 AFFECT /qml/common/SceneSelectionHandler.qml
     TRAVERSE ?#selectionRoot
         LOCATE BEFORE cut
         INSERT {
-            signal askHaiku
+            signal askStory
         }
     END TRAVERSE
     TRAVERSE ?#tools
         LOCATE BEFORE ArkControls.ContextualMenu.Button#convertToText
         INSERT {
             ArkControls.ContextualMenu.Button {
-                id: askHaikuButton
+                id: askStoryButton
                 focusPolicy: Qt.NoFocus
                 type: tools.type
-                iconSource: "qrc:/ark/icons/notebook_sparkles"
-                onClicked: selectionRoot.askHaiku()
+                iconSource: ""
+                onClicked: selectionRoot.askStory()
+
+                // Menu icons only load from firmware resources; draw ours on top.
+                Image {
+                    anchors.centerIn: parent
+                    width: askStoryButton.tokens?.content?.icon?.idle.sizing ?? 48
+                    height: width
+                    sourceSize: Qt.size(width, height)
+                    source: "file:///home/root/unremarkable/sleeping-cat.svg"
+                }
             }
         }
     END TRAVERSE
@@ -27,10 +37,10 @@ AFFECT /qml/device/view/documentview/DeviceSceneView.qml
     TRAVERSE ?#selectionHandler
         LOCATE AFTER ALL
         INSERT {
-            onAskHaiku: {
-                console.log("[unremarkable] askHaiku requested");
+            onAskStory: {
+                console.log("[unremarkable] askStory requested");
                 root.convertSelection(function () {
-                    hwcSelectionTool.askHaikuFrom(
+                    hwcSelectionTool.askStoryFrom(
                         controller.cloneSelectedItems(controller.currentLayer,
                                                       root.defaultScale));
                     root.endItemSelection();
@@ -47,23 +57,31 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
     TRAVERSE ?#root
         LOCATE BEFORE convert
         INSERT {
-            property bool askingHaiku: false
-            property string haikuSubject: ""
-            property string haikuText: ""
-            property string haikuStatus: "idle"
-            property var haikuMeta: null
+            property bool askingStory: false
+            property string storyEntry: ""
+            property string storyText: ""
+            property string storyStatus: "idle"
+            property var storyMeta: null
+            property real storyStarted: 0
+            property int storyElapsed: 0
+            property int storyWordCap: 120  // ask.sh keeps this many words
 
-            CommandExecutor { id: haikuRunner }
+            CommandExecutor { id: storyRunner }
 
-            function askHaikuFrom(items) {
-                askingHaiku = true;
+            function askStoryFrom(items) {
+                askingStory = true;
+                root.storyEntry = "";
+                root.storyText = "";
+                root.storyMeta = null;
+                root.storyStatus = "reading";
+                storyPopup.parent = storyTopLevel();
+                storyPopup.open();
                 Recognizer.startSelectionToolJob(items,
                     Settings.handwritingConversionLanguage);
             }
 
-            function haikuTopLevel() {
-                var node = haikuPopup.parent ? haikuPopup.parent : root;
-                node = root;
+            function storyTopLevel() {
+                var node = root;
                 while (node.parent) { node = node.parent; }
                 return node;
             }
@@ -90,18 +108,7 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
                 return total;
             }
 
-            function haikuPoem(raw) {
-                if (!raw) return "";
-                var text = raw;
-                var split = text.indexOf(String.fromCharCode(10, 10));
-                if (split >= 0) text = text.substring(0, split);
-                text = stripQuotes(text.trim());
-                var lines = text.split(String.fromCharCode(10));
-                if (lines.length > 6) lines = lines.slice(0, 6);
-                return lines.join(String.fromCharCode(10));
-            }
-
-            function haikuRead(path, cb) {
+            function storyRead(path, cb) {
                 var xhr = new XMLHttpRequest();
                 xhr.onreadystatechange = function() {
                     if (xhr.readyState === XMLHttpRequest.DONE) cb(xhr.responseText);
@@ -110,45 +117,66 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
                 xhr.send();
             }
 
-            function haikuPoll() {
-                haikuRead("/home/root/unremarkable/state/out.txt",
-                          function(t) { root.haikuText = t; });
-                haikuRead("/home/root/unremarkable/state/status",
-                          function(s) {
-                              root.haikuStatus = s;
-                              if (s === "done") haikuTimer.stop();
-                          });
-                haikuRead("/home/root/unremarkable/state/meta.json",
+            function storyReadOutput() {
+                storyRead("/home/root/unremarkable/state/out.txt",
+                          function(t) { root.storyText = t; });
+                storyRead("/home/root/unremarkable/state/meta.json",
                           function(m) {
-                              try { root.haikuMeta = JSON.parse(m); }
-                              catch (e) { root.haikuMeta = null; }
+                              try { root.storyMeta = JSON.parse(m); }
+                              catch (e) { root.storyMeta = null; }
                           });
             }
 
-            function askHaikuAbout(subject) {
-                root.haikuSubject = subject;
-                root.haikuText = "";
-                root.haikuStatus = "running";
-                haikuRunner.executeCommand("/home/root/unremarkable/ask-bg.sh",
-                                           ["about", subject, "80"]);
-                haikuPopup.parent = haikuTopLevel();
-                haikuPopup.open();
-                haikuTimer.start();
+            function storyPoll() {
+                root.storyElapsed = Math.round((Date.now() - root.storyStarted) / 1000);
+                storyReadOutput();
+                storyRead("/home/root/unremarkable/state/status",
+                          function(s) {
+                              if (s !== "done") return;
+                              // Text and stats land before status; read them once more.
+                              storyTimer.stop();
+                              storyReadOutput();
+                              root.storyStatus = "done";
+                          });
+            }
+
+            function askStoryAbout(entry) {
+                root.storyEntry = entry;
+                root.storyText = "";
+                root.storyMeta = null;
+                root.storyStatus = "running";
+                root.storyStarted = Date.now();
+                root.storyElapsed = 0;
+                storyRunner.executeCommand("/home/root/unremarkable/ask-bg.sh",
+                                           [entry]);
+                storyPopup.parent = storyTopLevel();
+                storyPopup.open();
+                storyTimer.start();
+            }
+
+            // Recognition runs in reMarkable's cloud; offline it returns nothing.
+            function storyFailed() {
+                root.storyEntry = "";
+                root.storyText = "";
+                root.storyMeta = null;
+                root.storyStatus = "failed";
+                storyPopup.parent = storyTopLevel();
+                storyPopup.open();
             }
 
             Timer {
-                id: haikuTimer
+                id: storyTimer
                 interval: 2000
                 repeat: true
-                onTriggered: root.haikuPoll()
+                onTriggered: root.storyPoll()
             }
 
             Popup {
-                id: haikuPopup
+                id: storyPopup
                 modal: true
                 focus: true
                 width: 1000
-                height: 980
+                height: 1560
                 anchors.centerIn: parent
                 padding: 0
                 closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
@@ -166,48 +194,64 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
                         spacing: 0
 
                         Text {
-                            text: "Unremarkable"
+                            text: root.storyStatus === "failed"
+                                  ? "Couldn’t read the page"
+                                  : root.storyStatus === "reading"
+                                  ? "Reading your page…"
+                                  : root.storyStatus === "running"
+                                  ? "Writing a bedtime story…"
+                                  : "A bedtime story"
                             font.family: "EB Garamond"
                             font.pixelSize: 52
-                            font.weight: Font.Normal
                             color: "#000000"
                         }
                         Text {
-                            text: (root.haikuStatus === "running"
-                                   ? "Generating a poem for \u201c"
-                                   : "A poem for \u201c")
-                                  + root.haikuSubject + "\u201d"
+                            visible: root.storyEntry !== ""
+                            text: root.wordCount(root.storyEntry) > root.storyWordCap
+                                  ? "from the first " + root.storyWordCap + " of your "
+                                    + root.wordCount(root.storyEntry) + " words"
+                                  : "from your " + root.wordCount(root.storyEntry) + "-word entry"
                             font.family: "EB Garamond"
                             font.italic: true
-                            font.pixelSize: 30
+                            font.pixelSize: 28
                             color: "#000000"
                             width: 872
                             elide: Text.ElideRight
                             topPadding: 6
                         }
 
-                        Rectangle {
-                            width: 872; height: 2
-                            color: "#000000"
-                            y: 28
-                        }
-
-                        Item { width: 1; height: 70 }
+                        Item { width: 1; height: 26 }
+                        Rectangle { width: 872; height: 2; color: "#000000" }
+                        Item { width: 1; height: 44 }
 
                         Text {
                             width: 872
-                            text: root.haikuText === ""
-                                  ? "\u00b7 \u00b7 \u00b7"
-                                  : root.haikuPoem(root.haikuText)
+                            text: root.storyStatus === "failed"
+                                  ? "Handwriting recognition runs on reMarkable’s servers, "
+                                    + "so the tablet needs Wi-Fi. Connect and try again."
+                                  : root.storyText === ""
+                                  ? "· · ·"
+                                  : root.stripQuotes(root.storyText)
                             font.family: "EB Garamond"
-                            font.pixelSize: 46
+                            font.pixelSize: 34
                             color: "#000000"
-                            lineHeight: 1.45
+                            lineHeight: 1.35
                             lineHeightMode: Text.ProportionalHeight
                             wrapMode: Text.WordWrap
-                            horizontalAlignment: Text.AlignHCenter
-                            maximumLineCount: 8
+                            maximumLineCount: 22
                             elide: Text.ElideRight
+                        }
+
+                        Text {
+                            width: 872
+                            visible: root.storyStatus === "done" && root.storyText !== ""
+                            text: "— sleep well —"
+                            font.family: "EB Garamond"
+                            font.italic: true
+                            font.pixelSize: 30
+                            color: "#000000"
+                            horizontalAlignment: Text.AlignHCenter
+                            topPadding: 28
                         }
                     }
 
@@ -221,28 +265,35 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
                         Rectangle { width: 872; height: 1; color: "#000000" }
 
                         Text {
-                            text: "SmolLM2-135M-Instruct \u00b7 fp32 \u00b7 armv7l @ 1.2GHz"
+                            text: "SmolLM2-135M bedtime fine-tune · q8_0 · 2 threads · armv7l"
                             font.family: "Noto Sans Mono"
-                            font.pixelSize: 19
+                            font.pixelSize: 22
                             color: "#000000"
                         }
                         Text {
-                            text: root.haikuMeta
-                                  ? "ttft " + (root.haikuMeta.ttft_ms / 1000).toFixed(1)
-                                    + "s  \u00b7  " + root.haikuMeta.decode_tok_s.toFixed(2)
-                                    + " tok/s  \u00b7  " + root.haikuMeta.generated_tokens
-                                    + " tok  \u00b7  " + Math.round(root.haikuMeta.peak_rss_mib)
-                                    + " MiB rss"
-                                  : "generating \u00b7 " + root.wordCount(root.haikuText)
-                                    + " words \u00b7 ~1 tok/s"
+                            text: root.storyStatus === "done" && root.storyMeta
+                                  ? "done in " + (root.storyMeta.generation_ms / 1000).toFixed(0)
+                                    + "s  ·  ttft " + (root.storyMeta.ttft_ms / 1000).toFixed(1)
+                                    + "s  ·  " + root.storyMeta.decode_tok_s.toFixed(2)
+                                    + " tok/s  ·  " + root.storyMeta.generated_tokens + " tok"
+                                  : root.storyStatus === "reading"
+                                  ? "recognizing handwriting · needs Wi-Fi"
+                                  : root.storyStatus === "running" && root.storyText === ""
+                                  ? "reading your entry · " + root.storyElapsed + "s"
+                                  : root.storyStatus === "running"
+                                  ? "writing · " + root.wordCount(root.storyText)
+                                    + " words · " + root.storyElapsed + "s"
+                                  : ""
+                            width: 872
+                            elide: Text.ElideRight
                             font.family: "Noto Sans Mono"
-                            font.pixelSize: 19
+                            font.pixelSize: 26
                             color: "#000000"
                         }
                     }
                 }
 
-                onClosed: haikuTimer.stop()
+                onClosed: storyTimer.stop()
             }
 
         }
@@ -252,15 +303,17 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
         REBUILD onFinishedChanged
         LOCATE AFTER STREAM / { /
         INSERT {
-if (askingHaiku) {
+if (askingStory) {
     if (!finished) {
         return;
     }
-    var subject = recognitionJob.plainText.split(String.fromCharCode(10)).join(" ").trim();
-    console.log("[unremarkable] recognized subject: [" + subject + "]");
-    askingHaiku = false;
-    if (subject !== "") {
-        root.askHaikuAbout(subject);
+    var entry = recognitionJob.plainText.split(String.fromCharCode(10)).join(" ").trim();
+    console.log("[unremarkable] recognized entry: [" + entry + "]");
+    askingStory = false;
+    if (entry !== "") {
+        root.askStoryAbout(entry);
+    } else {
+        root.storyFailed();
     }
     return;
 }

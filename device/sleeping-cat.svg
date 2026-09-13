@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" stroke="#000" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+  <!-- body, curled -->
+  <path d="M10 40 C10 30 18 24 28 24 C37 24 43 30 43 37 C43 38.6 42.5 39.8 41.5 40.5"/>
+  <!-- tail wrapped around the front, tip under the chin -->
+  <path fill="#fff" d="M41.5 38.5 C42 44 31 45.5 21.5 44.6 C18.4 44.3 17.2 42.6 18.8 41.4 C27 42.2 35.5 41.8 41.5 38.5 Z"/>
+  <!-- head resting on the tail -->
+  <path fill="#fff" d="M8 34 C8 29.6 11 27 15 27 C19 27 22 29.6 22 34 C22 38.4 19 41 15 41 C11 41 8 38.4 8 34 Z"/>
+  <path fill="#fff" d="M9.2 30.8 L9.4 23.2 C9.5 22.6 10 22.4 10.5 22.8 L14 27.1"/>
+  <path fill="#fff" d="M16 27.1 L19.5 22.8 C20 22.4 20.5 22.6 20.6 23.2 L20.8 30.8"/>
+  <!-- closed eyes and nose -->
+  <path stroke-width="2" d="M10.6 34 Q12 35.6 13.4 34"/>
+  <path stroke-width="2" d="M16.6 34 Q18 35.6 19.4 34"/>
+  <path stroke-width="1.6" d="M14.4 37 H15.6"/>
+  <!-- z z -->
+  <path stroke-width="2.2" d="M28 9 H34 L28 16 H34"/>
+  <path stroke-width="1.8" d="M37.5 3.5 H41.5 L37.5 8 H41.5"/>
+</svg>
