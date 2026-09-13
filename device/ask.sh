@@ -46,8 +46,10 @@ printf 'running' > "$STATE/status"
 
 # No system turn: the fine-tune was trained without one.
 # Temperature 0.5 wanders less than 0.8 (train/README.md, Results).
+# Opening the reply ourselves gives every story a named character and a plot.
 "$DIR/unremarkable" "$MODEL" -z "$TOKENIZER" -c 512 -y "" -j 2 -b 8 \
     -t 0.5 -p 0.9 -s "$SEED" -i "$PROMPT" -n "$LIMIT" \
+    -a "Once upon a time, there was a little" \
     > "$STATE/out.txt" 2> "$STATE/meta.json"
 
 printf 'done' > "$STATE/status"
