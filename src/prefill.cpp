@@ -8,30 +8,7 @@ namespace unremarkable {
 
 // X[count, columns] * W[rows, columns]^T -> output[count, rows].
 void Engine::project_batch(const float* input, const Matrix& weight, int count, float* output) {
-  if (count == 1) {
-    project(input, weight, output);
-    return;
-  }
-  const bool quantized = weight.format == Format::kQ8_0;
-  if (quantized) {
-    const double started = profiler_.clock();
-    const int blocks = q8_blocks(weight.columns);
-    for (int token = 0; token < count; ++token) {
-      quantize_q8(input + static_cast<size_t>(token) * weight.columns, weight.columns,
-                  scratch_.quantized.data() + static_cast<size_t>(token) * blocks);
-    }
-    profiler_.quantized(started);
-  }
-  const size_t stride = row_bytes(weight.format, weight.columns);
-  worker_.run(weight.rows, [&](int begin, int end) {
-    Matrix rows{weight.data + static_cast<size_t>(begin) * stride, end - begin, weight.columns,
-                weight.format};
-    if (quantized) {
-      matmul_q8(scratch_.quantized.data(), rows, count, weight.rows, output + begin);
-    } else {
-      matmul(input, rows, count, weight.rows, output + begin);
-    }
-  });
+  project_group(input, count, {{weight, output}});
 }
 
 void Engine::prefill_chunk(std::span<const int> tokens) {
@@ -71,9 +48,8 @@ void Engine::prefill_chunk(std::span<const int> tokens) {
       rmsnorm(residual + offset, weights.attention_norm.data(), dim, normalized + offset);
     }
     profiler_.lap(Stage::kNorm);
-    project_batch(normalized, weights.query, count, query);
-    project_batch(normalized, weights.key, count, keys);
-    project_batch(normalized, weights.value, count, values);
+    project_group(normalized, count,
+                  {{weights.query, query}, {weights.key, keys}, {weights.value, values}});
     profiler_.lap(Stage::kQkv);
     for (int token = 0; token < count; ++token) {
       const float* cosines = scratch_.rope.data() + static_cast<size_t>(token) * head_size;
@@ -96,8 +72,7 @@ void Engine::prefill_chunk(std::span<const int> tokens) {
       rmsnorm(residual + offset, weights.feed_forward_norm.data(), dim, normalized + offset);
     }
     profiler_.lap(Stage::kNorm);
-    project_batch(normalized, weights.gate, count, gate);
-    project_batch(normalized, weights.up, count, up);
+    project_group(normalized, count, {{weights.gate, gate}, {weights.up, up}});
     profiler_.lap(Stage::kGateUp);
     for (int token = 0; token < count; ++token) {
       const size_t offset = static_cast<size_t>(token) * hidden;

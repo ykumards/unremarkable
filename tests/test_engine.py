@@ -259,12 +259,14 @@ class EngineTests(unittest.TestCase):
             model = Path(directory) / "prefill.bin"
             for quantized in (False, True):
                 for shared in (False, True):
-                    with self.subTest(quantized=quantized, shared=shared):
-                        reference_model(model, shared, 1, tagged=True, quantize=quantized,
-                                        dim=64, hidden=73, context=18)
-                        result = subprocess.run([str(PREFILL), str(model)], capture_output=True,
-                                                timeout=90)
-                        self.assertEqual(result.returncode, 0, result.stderr.decode())
+                    # Combined Q/K/V split falls inside Q, at Q's end, or inside K.
+                    for kv_heads in (1, 2, 4):
+                        with self.subTest(quantized=quantized, shared=shared, kv_heads=kv_heads):
+                            reference_model(model, shared, kv_heads, tagged=True, quantize=quantized,
+                                            dim=64, hidden=73, context=18)
+                            result = subprocess.run([str(PREFILL), str(model)], capture_output=True,
+                                                    timeout=90)
+                            self.assertEqual(result.returncode, 0, result.stderr.decode())
 
     def test_prefill_modes_preserve_generation(self):
         outputs = []

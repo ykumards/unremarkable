@@ -18,6 +18,7 @@ git diff rung-02 rung-03 -- src/
 | [07: batched prefill](https://github.com/ykumards/unremarkable/tree/milestone/07-batched-prefill) | Eight prompt tokens per projection; final logits only | Time to first token: 3.94 → 2.64 s | 6.05¹ |
 | [08: serial steps](https://github.com/ykumards/unremarkable/tree/milestone/08-q8-serial-steps) | RoPE angles once per token; NEON quantization | Serial work between projections | 6.35 |
 | [09: attention](https://github.com/ykumards/unremarkable/tree/milestone/09-attention) | NEON weighted sum; heads split across cores | Attention over cached tokens | 6.95 |
+| [10: grouped projections](https://github.com/ykumards/unremarkable/tree/milestone/10-grouped-projections) | Quantize once and dispatch Q/K/V or gate/up together | Repeated quantization and worker jobs | 7.28 |
 
 ¹ Rung 07 changes prefill. Its matched baseline decoded at 5.92 tok/s; it does
 not establish a decode improvement or regression against rung 06's older run.
@@ -345,6 +346,31 @@ changed logits and generated text. That patch and the earlier
 Host tests, ASan/UBSan, formatting, and ARMv7 attention tests pass. The retained
 build matches baseline host logits exactly at eight checked positions. Tests
 cover grouped heads, split ranges, SIMD tails, and causal boundaries.
+
+## Measured: 10 on the tablet (2026-09-13)
+
+[Raw runs and patch](../runs/grouping-20260913/).
+
+Q/K/V share one normalized input, as do gate/up. Grouping each set quantizes
+the input once and splits all its rows in one worker job. For each decoded
+SmolLM2 token, projection jobs and Q8 input quantizations drop from 211 to 121.
+The 30 attention jobs stay unchanged. Matrices remain in place and every row
+keeps its arithmetic order. Batched prefill uses the same grouping.
+
+| Build | Decode tok/s ± sample std | TTFT ± sample std |
+| --- | ---: | ---: |
+| Rung 09, fresh baseline | 6.961 ± 0.035 | 2.456 ± 0.015 s |
+| **Grouped projections** | **7.279 ± 0.012** | **2.388 ± 0.003 s** |
+
+Decode improves **4.6%**, TTFT **2.8%**. Three interleaved runs per build after
+one warmup each. SmolLM2-135M Q8, batch 8, two threads, context 512, 26 prompt
+tokens, greedy seed 1, 64 generated tokens. Same boot, UI active, `ondemand`.
+All six texts match; RSS remains about 171 MiB. Grouping removes overhead;
+it does not reduce matrix arithmetic or weight reads.
+
+Host tests, ASan/UBSan, formatting, and ARMv7 FP32/Q8 prefill tests pass.
+Tests exercise group boundaries, padded dimensions, and batched output strides.
+Eight checked host logit positions match baseline exactly.
 
 ## Memory ceiling
 

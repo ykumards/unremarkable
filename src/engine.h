@@ -1,6 +1,7 @@
 #ifndef UNREMARKABLE_SRC_ENGINE_H_
 #define UNREMARKABLE_SRC_ENGINE_H_
 
+#include <initializer_list>
 #include <span>
 #include <string>
 #include <vector>
@@ -69,6 +70,15 @@ class Engine {
 #endif
 
  private:
+  struct Projection {
+    Matrix weight;
+    float* output;
+  };
+
+  // Nonempty group: same input width and format, disjoint outputs. Quantize each
+  // input token once, then split the combined row range across the worker.
+  void project_group(const float* input, int count, std::initializer_list<Projection> group);
+
   // output = weight * input, quantizing the input first for Q8_0 weights.
   void project(const float* input, const Matrix& weight, float* output);
 

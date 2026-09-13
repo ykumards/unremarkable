@@ -1,0 +1,195 @@
+diff --git a/src/engine.cpp b/src/engine.cpp
+index b810d8f..08465a0 100644
+--- a/src/engine.cpp
++++ b/src/engine.cpp
+@@ -74,20 +74,47 @@ Profile Engine::profile() const {
+ #endif
+ 
+ void Engine::project(const float* input, const Matrix& weight, float* output) {
+-  const bool quantized = weight.format == Format::kQ8_0;
++  project_group(input, 1, {{weight, output}});
++}
++
++void Engine::project_group(const float* input, int count, std::initializer_list<Projection> group) {
++  const Matrix& first = group.begin()->weight;
++  const bool quantized = first.format == Format::kQ8_0;
+   if (quantized) {
+     const double started = profiler_.clock();
+-    quantize_q8(input, weight.columns, scratch_.quantized.data());
++    const int blocks = q8_blocks(first.columns);
++    for (int token = 0; token < count; ++token) {
++      quantize_q8(input + static_cast<size_t>(token) * first.columns, first.columns,
++                  scratch_.quantized.data() + static_cast<size_t>(token) * blocks);
++    }
+     profiler_.quantized(started);
+   }
+-  const size_t stride = row_bytes(weight.format, weight.columns);
+-  worker_.run(weight.rows, [&](int begin, int end) {
+-    Matrix rows{weight.data + static_cast<size_t>(begin) * stride, end - begin, weight.columns,
+-                weight.format};
+-    if (quantized) {
+-      matvec_q8(scratch_.quantized.data(), rows, output + begin);
+-    } else {
+-      matvec(input, rows, output + begin);
++  int total_rows = 0;
++  for (const auto& projection : group) {
++    total_rows += projection.weight.rows;
++  }
++  const size_t stride = row_bytes(first.format, first.columns);
++  worker_.run(total_rows, [&](int begin, int end) {
++    int offset = 0;
++    for (const auto& [weight, output] : group) {
++      const int row_begin = std::max(0, begin - offset);
++      const int row_end = std::min(weight.rows, end - offset);
++      if (row_begin < row_end) {
++        Matrix rows{weight.data + static_cast<size_t>(row_begin) * stride, row_end - row_begin,
++                    weight.columns, weight.format};
++        if (count == 1) {
++          if (quantized) {
++            matvec_q8(scratch_.quantized.data(), rows, output + row_begin);
++          } else {
++            matvec(input, rows, output + row_begin);
++          }
++        } else if (quantized) {
++          matmul_q8(scratch_.quantized.data(), rows, count, weight.rows, output + row_begin);
++        } else {
++          matmul(input, rows, count, weight.rows, output + row_begin);
++        }
++      }
++      offset += weight.rows;
+     }
+   });
+ }
+@@ -145,9 +172,8 @@ std::span<float> Engine::forward(int token, int position) {
+     // 2. Attention. K/V write directly into this token's persistent cache slots.
+     rmsnorm(residual, weights.attention_norm.data(), dim, normalized);
+     profiler_.lap(Stage::kNorm);
+-    project(normalized, weights.query, query);
+-    project(normalized, weights.key, key);
+-    project(normalized, weights.value, value);
++    project_group(normalized, 1,
++                  {{weights.query, query}, {weights.key, key}, {weights.value, value}});
+     profiler_.lap(Stage::kQkv);
+     rope_inplace(cosines, sines, head_size, dim, kv_dim, query, key);
+     profiler_.lap(Stage::kRope);
+@@ -161,8 +187,7 @@ std::span<float> Engine::forward(int token, int position) {
+     // 3. Feed-forward. Expand to [hidden_dim], gate, project back to [dim].
+     rmsnorm(residual, weights.feed_forward_norm.data(), dim, normalized);
+     profiler_.lap(Stage::kNorm);
+-    project(normalized, weights.gate, gate);
+-    project(normalized, weights.up, up);
++    project_group(normalized, 1, {{weights.gate, gate}, {weights.up, up}});
+     profiler_.lap(Stage::kGateUp);
+     swiglu_inplace(up, config_.hidden_dim, gate);
+     profiler_.lap(Stage::kSwiGLU);
+diff --git a/src/engine.h b/src/engine.h
+index 3f04a6f..2a557bc 100644
+--- a/src/engine.h
++++ b/src/engine.h
+@@ -1,6 +1,7 @@
+ #ifndef UNREMARKABLE_SRC_ENGINE_H_
+ #define UNREMARKABLE_SRC_ENGINE_H_
+ 
++#include <initializer_list>
+ #include <span>
+ #include <string>
+ #include <vector>
+@@ -69,6 +70,15 @@ class Engine {
+ #endif
+ 
+  private:
++  struct Projection {
++    Matrix weight;
++    float* output;
++  };
++
++  // Nonempty group: same input width and format, disjoint outputs. Quantize each
++  // input token once, then split the combined row range across the worker.
++  void project_group(const float* input, int count, std::initializer_list<Projection> group);
++
+   // output = weight * input, quantizing the input first for Q8_0 weights.
+   void project(const float* input, const Matrix& weight, float* output);
+ 
+diff --git a/src/prefill.cpp b/src/prefill.cpp
+index deb5e68..00de201 100644
+--- a/src/prefill.cpp
++++ b/src/prefill.cpp
+@@ -8,30 +8,7 @@ namespace unremarkable {
+ 
+ // X[count, columns] * W[rows, columns]^T -> output[count, rows].
+ void Engine::project_batch(const float* input, const Matrix& weight, int count, float* output) {
+-  if (count == 1) {
+-    project(input, weight, output);
+-    return;
+-  }
+-  const bool quantized = weight.format == Format::kQ8_0;
+-  if (quantized) {
+-    const double started = profiler_.clock();
+-    const int blocks = q8_blocks(weight.columns);
+-    for (int token = 0; token < count; ++token) {
+-      quantize_q8(input + static_cast<size_t>(token) * weight.columns, weight.columns,
+-                  scratch_.quantized.data() + static_cast<size_t>(token) * blocks);
+-    }
+-    profiler_.quantized(started);
+-  }
+-  const size_t stride = row_bytes(weight.format, weight.columns);
+-  worker_.run(weight.rows, [&](int begin, int end) {
+-    Matrix rows{weight.data + static_cast<size_t>(begin) * stride, end - begin, weight.columns,
+-                weight.format};
+-    if (quantized) {
+-      matmul_q8(scratch_.quantized.data(), rows, count, weight.rows, output + begin);
+-    } else {
+-      matmul(input, rows, count, weight.rows, output + begin);
+-    }
+-  });
++  project_group(input, count, {{weight, output}});
+ }
+ 
+ void Engine::prefill_chunk(std::span<const int> tokens) {
+@@ -71,9 +48,8 @@ void Engine::prefill_chunk(std::span<const int> tokens) {
+       rmsnorm(residual + offset, weights.attention_norm.data(), dim, normalized + offset);
+     }
+     profiler_.lap(Stage::kNorm);
+-    project_batch(normalized, weights.query, count, query);
+-    project_batch(normalized, weights.key, count, keys);
+-    project_batch(normalized, weights.value, count, values);
++    project_group(normalized, count,
++                  {{weights.query, query}, {weights.key, keys}, {weights.value, values}});
+     profiler_.lap(Stage::kQkv);
+     for (int token = 0; token < count; ++token) {
+       const float* cosines = scratch_.rope.data() + static_cast<size_t>(token) * head_size;
+@@ -96,8 +72,7 @@ void Engine::prefill_chunk(std::span<const int> tokens) {
+       rmsnorm(residual + offset, weights.feed_forward_norm.data(), dim, normalized + offset);
+     }
+     profiler_.lap(Stage::kNorm);
+-    project_batch(normalized, weights.gate, count, gate);
+-    project_batch(normalized, weights.up, count, up);
++    project_group(normalized, count, {{weights.gate, gate}, {weights.up, up}});
+     profiler_.lap(Stage::kGateUp);
+     for (int token = 0; token < count; ++token) {
+       const size_t offset = static_cast<size_t>(token) * hidden;
+diff --git a/tests/test_engine.py b/tests/test_engine.py
+index d657e9c..d52964b 100644
+--- a/tests/test_engine.py
++++ b/tests/test_engine.py
+@@ -259,12 +259,14 @@ class EngineTests(unittest.TestCase):
+             model = Path(directory) / "prefill.bin"
+             for quantized in (False, True):
+                 for shared in (False, True):
+-                    with self.subTest(quantized=quantized, shared=shared):
+-                        reference_model(model, shared, 1, tagged=True, quantize=quantized,
+-                                        dim=64, hidden=73, context=18)
+-                        result = subprocess.run([str(PREFILL), str(model)], capture_output=True,
+-                                                timeout=90)
+-                        self.assertEqual(result.returncode, 0, result.stderr.decode())
++                    # Combined Q/K/V split falls inside Q, at Q's end, or inside K.
++                    for kv_heads in (1, 2, 4):
++                        with self.subTest(quantized=quantized, shared=shared, kv_heads=kv_heads):
++                            reference_model(model, shared, kv_heads, tagged=True, quantize=quantized,
++                                            dim=64, hidden=73, context=18)
++                            result = subprocess.run([str(PREFILL), str(model)], capture_output=True,
++                                                    timeout=90)
++                            self.assertEqual(result.returncode, 0, result.stderr.decode())
+ 
+     def test_prefill_modes_preserve_generation(self):
+         outputs = []

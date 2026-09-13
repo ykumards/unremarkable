@@ -24,6 +24,8 @@ tails, split head ranges, and causal boundaries.
 Prefill tests compare exact logits and subsequent decode against sequential
 forward passes: FP32/Q8, one/two threads, prefixes, partial chunks, reset,
 context boundaries, and rejected inputs.
+Grouped Q/K/V tests place the worker split inside Q, at its boundary, and inside
+K, with shared/separate classifiers, padded Q8 dimensions, and odd gate/up widths.
 `make check-format` enforces the repository's 100-column C++ style.
 
 For TinyStories fixtures run `make test-models` first. Tokenizer parity tests also

@@ -74,20 +74,47 @@ Profile Engine::profile() const {
 #endif
 
 void Engine::project(const float* input, const Matrix& weight, float* output) {
-  const bool quantized = weight.format == Format::kQ8_0;
+  project_group(input, 1, {{weight, output}});
+}
+
+void Engine::project_group(const float* input, int count, std::initializer_list<Projection> group) {
+  const Matrix& first = group.begin()->weight;
+  const bool quantized = first.format == Format::kQ8_0;
   if (quantized) {
     const double started = profiler_.clock();
-    quantize_q8(input, weight.columns, scratch_.quantized.data());
+    const int blocks = q8_blocks(first.columns);
+    for (int token = 0; token < count; ++token) {
+      quantize_q8(input + static_cast<size_t>(token) * first.columns, first.columns,
+                  scratch_.quantized.data() + static_cast<size_t>(token) * blocks);
+    }
     profiler_.quantized(started);
   }
-  const size_t stride = row_bytes(weight.format, weight.columns);
-  worker_.run(weight.rows, [&](int begin, int end) {
-    Matrix rows{weight.data + static_cast<size_t>(begin) * stride, end - begin, weight.columns,
-                weight.format};
-    if (quantized) {
-      matvec_q8(scratch_.quantized.data(), rows, output + begin);
-    } else {
-      matvec(input, rows, output + begin);
+  int total_rows = 0;
+  for (const auto& projection : group) {
+    total_rows += projection.weight.rows;
+  }
+  const size_t stride = row_bytes(first.format, first.columns);
+  worker_.run(total_rows, [&](int begin, int end) {
+    int offset = 0;
+    for (const auto& [weight, output] : group) {
+      const int row_begin = std::max(0, begin - offset);
+      const int row_end = std::min(weight.rows, end - offset);
+      if (row_begin < row_end) {
+        Matrix rows{weight.data + static_cast<size_t>(row_begin) * stride, row_end - row_begin,
+                    weight.columns, weight.format};
+        if (count == 1) {
+          if (quantized) {
+            matvec_q8(scratch_.quantized.data(), rows, output + row_begin);
+          } else {
+            matvec(input, rows, output + row_begin);
+          }
+        } else if (quantized) {
+          matmul_q8(scratch_.quantized.data(), rows, count, weight.rows, output + row_begin);
+        } else {
+          matmul(input, rows, count, weight.rows, output + row_begin);
+        }
+      }
+      offset += weight.rows;
     }
   });
 }
@@ -145,9 +172,8 @@ std::span<float> Engine::forward(int token, int position) {
     // 2. Attention. K/V write directly into this token's persistent cache slots.
     rmsnorm(residual, weights.attention_norm.data(), dim, normalized);
     profiler_.lap(Stage::kNorm);
-    project(normalized, weights.query, query);
-    project(normalized, weights.key, key);
-    project(normalized, weights.value, value);
+    project_group(normalized, 1,
+                  {{weights.query, query}, {weights.key, key}, {weights.value, value}});
     profiler_.lap(Stage::kQkv);
     rope_inplace(cosines, sines, head_size, dim, kv_dim, query, key);
     profiler_.lap(Stage::kRope);
@@ -161,8 +187,7 @@ std::span<float> Engine::forward(int token, int position) {
     // 3. Feed-forward. Expand to [hidden_dim], gate, project back to [dim].
     rmsnorm(residual, weights.feed_forward_norm.data(), dim, normalized);
     profiler_.lap(Stage::kNorm);
-    project(normalized, weights.gate, gate);
-    project(normalized, weights.up, up);
+    project_group(normalized, 1, {{weights.gate, gate}, {weights.up, up}});
     profiler_.lap(Stage::kGateUp);
     swiglu_inplace(up, config_.hidden_dim, gate);
     profiler_.lap(Stage::kSwiGLU);
