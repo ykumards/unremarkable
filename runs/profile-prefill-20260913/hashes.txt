@@ -1,0 +1,4 @@
+386cc310f06dd7c09c452c32cea8d27adeda98edd9ed07f71486380fb72ddec2  benchmarks/prefill-normal-8f8c26e
+9910a08b03631887c44d334064fbc9c0fb1019d66ac9d4aac4faa32b5914be75  benchmarks/prefill-profile-8f8c26e
+f91ef5915cf88f3cda27e73f79820e0b8c7ac270e2bd077e4b032cd975711669  models/smollm2-135m-q8.bin
+61c01079531e552d20ef84247c5f184d67f8bb7baf73e48e96922d222e47b0a3  models/smollm2-135m.tok

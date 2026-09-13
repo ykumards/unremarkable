@@ -1,0 +1,99 @@
+Sun Sep 13 08:11:37 UTC 2026
+Linux reMarkable 5.4.70-v1.6.3-rm11x #1 SMP PREEMPT Fri Mar 6 07:08:47 UTC 2026 armv7l GNU/Linux
+ 08:11:37 up 3 days,  1:57,  load average: 0.08, 0.01, 0.03
+              total        used        free      shared  buff/cache   available
+Mem:        1027664      205976      506344         768      315344      805168
+Swap:             0           0           0
+611c86a7-c523-4a53-b7b6-bb58e938c502
+ondemand
+0-1
+active
+  PID USER       VSZ STAT COMMAND
+    1 root     13176 R    {systemd} /sbin/init
+    2 root         0 SW   [kthreadd]
+    3 root         0 IW<  [rcu_gp]
+    4 root         0 IW<  [rcu_par_gp]
+    8 root         0 IW<  [mm_percpu_wq]
+    9 root         0 SW   [ksoftirqd/0]
+   10 root         0 IW   [rcu_preempt]
+   11 root         0 SW   [migration/0]
+   12 root         0 SW   [cpuhp/0]
+   13 root         0 SW   [cpuhp/1]
+   14 root         0 SW   [migration/1]
+   15 root         0 SW   [ksoftirqd/1]
+   18 root         0 SW   [kdevtmpfs]
+   19 root         0 SW   [rcu_tasks_kthre]
+   22 root         0 SW   [oom_reaper]
+   23 root         0 IW<  [writeback]
+   24 root         0 SW   [kcompactd0]
+   68 root         0 IW<  [kblockd]
+   69 root         0 SW   [irq/237-bd7181x]
+   70 root         0 SW   [watchdogd]
+   71 root         0 IW<  [rpciod]
+   72 root         0 IW<  [kworker/u5:0]
+   73 root         0 IW<  [xprtiod]
+   74 root         0 SW   [kswapd0]
+   75 root         0 IW<  [nfsiod]
+   77 root         0 SW   [irq/68-max77818]
+   78 root         0 SW   [irq/68-max77818]
+   79 root         0 SW   [irq/68-max77818]
+   80 root         0 SW   [irq/242-epd_pgo]
+   81 root         0 IW<  [ci_otg]
+   82 root         0 IW<  [ci_power_lost]
+   83 root         0 SW   [irq/62-wacom_i2]
+   84 root         0 SW   [irq/75-2-0024]
+   85 root         0 IW<  [sdhci]
+   86 root         0 SW   [irq/54-mmc1]
+   88 root         0 IW<  [sdhci]
+   89 root         0 SW   [irq/55-mmc2]
+   91 root         0 SW   [30901000.jr0-en]
+  153 root         0 SW   [30902000.jr1-en]
+  155 root         0 SW   [30903000.jr1-en]
+  156 root         0 IW<  [ipv6_addrconf]
+  167 root         0 IW<  [mmc_complete]
+  171 root         0 SW   [irq/23-imx_ther]
+  174 root         0 SW   [jbd2/mmcblk2p3-]
+  175 root         0 IW<  [ext4-rsv-conver]
+  199 root     29412 S    /usr/lib/systemd/systemd-journald
+  215 root     14628 S    /usr/lib/systemd/systemd-udevd
+  230 systemd- 16228 S    /usr/lib/systemd/systemd-networkd
+  252 root         0 IW<  [cfg80211]
+  253 root         0 SW   [pogo_fsm]
+  281 systemd- 12124 S    /usr/lib/systemd/systemd-resolved
+  312 root         0 SW   [jbd2/mmcblk2p4-]
+  313 root         0 IW<  [ext4-rsv-conver]
+  317 root     40852 S    /usr/bin/crashuploader --path /home/root/
+  318 messageb  4072 S    /usr/bin/dbus-daemon --system --address=systemd: --n
+  319 root      4008 S    /sbin/agetty -o -p -- \u --noclear - linux
+  322 root      6580 S    /sbin/agetty -8 -L ttymxc0 115200 linux
+  324 root     10300 S    /usr/lib/systemd/systemd-logind
+  354 root     15032 S    /usr/bin/mdm-agent
+  367 root     11836 S    /usr/sbin/chronyd
+  388 root     53376 S    /usr/sbin/NetworkManager --no-daemon
+  444 root     10692 S    /usr/sbin/wpa_supplicant -u
+  471 root     62112 S    /usr/bin/memfaultd --daemonize --config-file /etc/me
+  495 root      6152 S    /usr/bin/nm-metrics
+  496 root     55964 S    /usr/bin/swupdate -k /usr/share/swupdate/swupdate-pa
+  532 root     56612 S    /usr/bin/swupdate -k /usr/share/swupdate/swupdate-pa
+  533 root     58836 S    /usr/bin/fakeupdateengine_service
+ 6857 root      456m S    /usr/bin/xochitl --system
+ 6859 root      123m SN   /usr/bin/rm-sync
+ 7365 root         0 SW   [hwrng]
+ 7370 root         0 IW<  [brcmf_wq/mmc1:0]
+ 7371 root         0 SW   [brcmf_wdog/mmc1]
+ 7750 root         0 IW<  [kworker/1:0H-kb]
+ 8078 root         0 IW   [kworker/u4:1-br]
+ 8159 root         0 IW<  [kworker/0:1H-mm]
+ 8190 root         0 IW   [kworker/u4:2-ev]
+ 8191 root         0 IW   [kworker/1:0-eve]
+ 8249 root         0 IW   [kworker/0:2-eve]
+ 8258 root         0 IW<  [kworker/1:2H]
+ 8276 root         0 IW<  [kworker/0:0H]
+ 8281 root         0 IW   [kworker/1:1-eve]
+ 8282 root         0 IW   [kworker/0:1-eve]
+ 8283 root         0 IW   [kworker/0:3-eve]
+ 8284 root         0 IW   [kworker/1:2-eve]
+ 8292 root         0 IW   [kworker/0:0-eve]
+ 8302 root      2548 S    /usr/sbin/dropbear -G root -i -r /etc/dropbear/dropb
+ 8303 root      7608 S    sh /home/root/unremarkable/benchmarks/run-profile-pr
+ 8314 root      2780 R    ps

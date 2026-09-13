@@ -1,0 +1,190 @@
+{
+  "source_commit": "8f8c26ef1fee6e8fdeb9c645e9305bf7fa0b4fa4",
+  "output_sha256": "4ea6b63a2f2397457b1066150e6e49e40d3102a26513077bf2193e70dcd2026e",
+  "timings": {
+    "normal": {
+      "runs": [
+        "1-normal",
+        "4-normal"
+      ],
+      "prefill_ms": {
+        "mean": 2646.34,
+        "sample_std": 15.195724727699073
+      },
+      "ttft_ms": {
+        "mean": 2647.7435,
+        "sample_std": 15.193603407355404
+      },
+      "decode_tok_s": {
+        "mean": 6.0255,
+        "sample_std": 0.013435028842544494
+      },
+      "peak_rss_mib": {
+        "mean": 171.152,
+        "sample_std": 0.0
+      }
+    },
+    "profile": {
+      "runs": [
+        "2-profile",
+        "3-profile"
+      ],
+      "prefill_ms": {
+        "mean": 2655.482,
+        "sample_std": 8.966113985445629
+      },
+      "ttft_ms": {
+        "mean": 2656.886,
+        "sample_std": 8.964699771882968
+      },
+      "decode_tok_s": {
+        "mean": 5.964499999999999,
+        "sample_std": 0.037476659402886976
+      },
+      "peak_rss_mib": {
+        "mean": 171.08800000000002,
+        "sample_std": 0.002828427124739598
+      }
+    }
+  },
+  "profile_ms_per_token": {
+    "prefill": {
+      "tokens_per_run": 26,
+      "steps_ms": {
+        "embedding": {
+          "mean": 0.01076923076923077,
+          "sample_std": 0.0
+        },
+        "norm": {
+          "mean": 0.80275,
+          "sample_std": 0.00046233904923733126
+        },
+        "qkv": {
+          "mean": 15.70496153846154,
+          "sample_std": 0.06102875449933212
+        },
+        "rope": {
+          "mean": 2.528019230769231,
+          "sample_std": 0.0031275876860173794
+        },
+        "attention": {
+          "mean": 4.397307692307692,
+          "sample_std": 0.001087856586440964
+        },
+        "output": {
+          "mean": 8.572596153846154,
+          "sample_std": 0.047947279047380074
+        },
+        "residual": {
+          "mean": 0.36286538461538465,
+          "sample_std": 0.0030731948566953705
+        },
+        "gate_up": {
+          "mean": 41.92521153846154,
+          "sample_std": 0.21346465867434936
+        },
+        "swiglu": {
+          "mean": 4.8956346153846155,
+          "sample_std": 0.04152892518737996
+        },
+        "down": {
+          "mean": 22.101384615384614,
+          "sample_std": 0.18205279974087193
+        },
+        "classifier": {
+          "mean": 0.8321538461538462,
+          "sample_std": 0.0007071067811865482
+        }
+      },
+      "total_ms": {
+        "mean": 102.1336923076923,
+        "sample_std": 0.344850537901741
+      },
+      "quantize_ms": {
+        "mean": 6.968057692307692,
+        "sample_std": 0.08199719020297817
+      },
+      "waiting_ms": {
+        "mean": 3.0149423076923076,
+        "sample_std": 0.21444372960215125
+      },
+      "worker_ms": {
+        "mean": 78.19032692307692,
+        "sample_std": 0.08150765473907895
+      },
+      "unattributed_ms": {
+        "mean": 3.846153846153846e-05,
+        "sample_std": 0.0
+      }
+    },
+    "decode": {
+      "tokens_per_run": 63,
+      "steps_ms": {
+        "embedding": {
+          "mean": 0.0125,
+          "sample_std": 0.0002132544260721342
+        },
+        "norm": {
+          "mean": 0.7300396825396825,
+          "sample_std": 0.009596449173245999
+        },
+        "qkv": {
+          "mean": 22.570436507936506,
+          "sample_std": 0.1879669407068419
+        },
+        "rope": {
+          "mean": 2.8346825396825395,
+          "sample_std": 0.011021886652780637
+        },
+        "attention": {
+          "mean": 20.860722222222222,
+          "sample_std": 0.009057701149486562
+        },
+        "output": {
+          "mean": 12.04997619047619,
+          "sample_std": 0.13631447392873994
+        },
+        "residual": {
+          "mean": 0.7171746031746031,
+          "sample_std": 0.011919800025716042
+        },
+        "gate_up": {
+          "mean": 52.11342063492064,
+          "sample_std": 0.645117086702529
+        },
+        "swiglu": {
+          "mean": 4.93268253968254,
+          "sample_std": 0.004714045207910426
+        },
+        "down": {
+          "mean": 27.525777777777776,
+          "sample_std": 0.3104984443610255
+        },
+        "classifier": {
+          "mean": 22.469873015873016,
+          "sample_std": 0.2597663387901818
+        }
+      },
+      "total_ms": {
+        "mean": 166.81846031746034,
+        "sample_std": 1.0480669367244078
+      },
+      "quantize_ms": {
+        "mean": 7.422563492063492,
+        "sample_std": 0.05491862667215511
+      },
+      "waiting_ms": {
+        "mean": 17.008341269841267,
+        "sample_std": 0.4568695480666389
+      },
+      "worker_ms": {
+        "mean": 104.41971428571429,
+        "sample_std": 0.3470884143081561
+      },
+      "unattributed_ms": {
+        "mean": 0.0011904761904761906,
+        "sample_std": 2.2447834323382524e-05
+      }
+    }
+  }
+}
