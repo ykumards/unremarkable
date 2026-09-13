@@ -64,6 +64,7 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
             property var storyMeta: null
             property real storyStarted: 0
             property int storyElapsed: 0
+            property int storyWordCap: 120  // ask.sh keeps this many words
 
             CommandExecutor { id: storyRunner }
 
@@ -206,7 +207,10 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
                         }
                         Text {
                             visible: root.storyEntry !== ""
-                            text: "from “" + root.storyEntry + "”"
+                            text: root.wordCount(root.storyEntry) > root.storyWordCap
+                                  ? "from the first " + root.storyWordCap + " of your "
+                                    + root.wordCount(root.storyEntry) + " words"
+                                  : "from your " + root.wordCount(root.storyEntry) + "-word entry"
                             font.family: "EB Garamond"
                             font.italic: true
                             font.pixelSize: 28

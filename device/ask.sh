@@ -10,9 +10,10 @@ TOKENIZER="$DIR/models/diary-q8.tok"
 LOCK="$STATE/lock"
 LIMIT="${2:-240}"
 
-# Recognized handwriting is arbitrary text; 1000 characters keeps the prompt
-# near 250 tokens, leaving room for the story in the 512-token context.
-ENTRY=$(printf '%s' "${1:-}" | tr -d '\000' | cut -c1-1000)
+# First 120 words (~160 tokens), like the training entries; leaves room in 512 tokens.
+WORDS=120
+ENTRY=$(printf '%s' "${1:-}" | tr -d '\000' | tr -s ' \t\n' '   ' | sed 's/^ //' \
+    | cut -d' ' -f1-$WORDS | cut -c1-1000)
 [ -z "$ENTRY" ] && { echo "usage: ask.sh \"<diary entry>\" [max_tokens]" >&2; exit 2; }
 
 # Must match diary_prompt in train/prepare.py, the prompt the model was tuned on.
