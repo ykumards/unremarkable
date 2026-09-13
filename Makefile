@@ -4,10 +4,10 @@ CPPFLAGS ?= -Isrc -D_FILE_OFFSET_BITS=64
 LDLIBS = -lm -pthread
 PYTHON ?= python3
 SOURCES = src/main.cpp src/engine.cpp src/prefill.cpp src/model.cpp src/sampler.cpp src/worker.cpp src/kernels.cpp src/tokenizer.cpp
-HEADERS = src/engine.h src/model.h src/sampler.h src/worker.h src/kernels.h src/tokenizer.h
+HEADERS = src/engine.h src/model.h src/profile.h src/sampler.h src/worker.h src/kernels.h src/tokenizer.h
 CORE = src/engine.cpp src/prefill.cpp src/model.cpp src/sampler.cpp src/worker.cpp src/kernels.cpp src/tokenizer.cpp
 
-.PHONY: all test sanitize models test-models chat-model chat-model-q8 accuracy tablet tablet-image
+.PHONY: all test sanitize models test-models chat-model chat-model-q8 accuracy tablet tablet-profile tablet-image
 all: build/unremarkable
 
 build:
@@ -19,6 +19,10 @@ build/unremarkable: $(SOURCES) $(HEADERS) Makefile | build
 build/unremarkable-sanitize: $(SOURCES) $(HEADERS) Makefile | build
 	$(CXX) $(CPPFLAGS) -O1 -g -std=c++23 -Wall -Wextra -ffp-contract=off \
 		-fsanitize=address,undefined -fno-omit-frame-pointer $(SOURCES) $(LDLIBS) -o $@
+
+# Per-step timings on a second stderr line; see docs/development.md.
+build/unremarkable-profile: $(SOURCES) $(HEADERS) Makefile | build
+	$(CXX) $(CPPFLAGS) -DUNREMARKABLE_PROFILE $(CXXFLAGS) $(SOURCES) $(LDFLAGS) $(LDLIBS) -o $@
 
 models:
 	$(PYTHON) tools/download.py 15M
@@ -65,6 +69,12 @@ build/unremarkable-armv7: $(SOURCES) $(HEADERS) Makefile tools/Dockerfile.armv7 
 
 tablet: build/unremarkable-armv7
 
+build/unremarkable-armv7-profile: $(SOURCES) $(HEADERS) Makefile tools/Dockerfile.armv7 | build
+	docker run --rm -v "$(CURDIR)":/src -w /src $(TABLET_IMAGE) \
+		$(TABLET_CXX) $(CPPFLAGS) -DUNREMARKABLE_PROFILE $(TABLET_FLAGS) $(SOURCES) $(LDLIBS) -o $@
+
+tablet-profile: build/unremarkable-armv7-profile
+
 build/probe: tests/probe.cpp $(CORE) $(HEADERS) Makefile | build
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) tests/probe.cpp $(CORE) $(LDFLAGS) $(LDLIBS) -o $@
 
@@ -75,11 +85,12 @@ build/probe-sanitize: tests/probe.cpp $(CORE) $(HEADERS) Makefile | build
 	$(CXX) $(CPPFLAGS) -O1 -g -std=c++23 -Wall -Wextra -ffp-contract=off \
 		-fsanitize=address,undefined -fno-omit-frame-pointer tests/probe.cpp $(CORE) $(LDLIBS) -o $@
 
-test: build/unremarkable build/probe build/test-prefill build/test-worker build/test-q8 build/test-q8-scalar
+test: build/unremarkable build/unremarkable-profile build/probe build/test-prefill build/test-worker build/test-q8 build/test-q8-scalar
 	./build/test-q8
 	./build/test-q8-scalar
 	./build/test-worker
-	$(PYTHON) tests/test_engine.py --binary build/unremarkable --probe build/probe --prefill build/test-prefill
+	$(PYTHON) tests/test_engine.py --binary build/unremarkable --probe build/probe --prefill build/test-prefill \
+		--profile-binary build/unremarkable-profile
 
 sanitize: build/unremarkable-sanitize build/probe-sanitize build/test-prefill-sanitize build/test-worker-sanitize build/test-q8-sanitize
 	./build/test-q8-sanitize

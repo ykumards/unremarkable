@@ -353,6 +353,29 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(stats["decode_tokens"], max(0, stats["generated_tokens"] - 1))
         return proc.stdout, stats
 
+    def test_profile_build(self):
+        """A profile build computes the same tokens and accounts for its time."""
+        if PROFILE_BINARY is None:
+            self.skipTest("no --profile-binary")
+        for batch in (0, 8):
+            with self.subTest(batch=batch):
+                args = [str(MODEL), "-z", str(TOKENIZER), "-i", "Once upon a time", "-n", "40",
+                        "-j", "2", "-b", str(batch)]
+                plain = subprocess.run([str(BINARY), *args], capture_output=True, timeout=60)
+                profiled = subprocess.run([str(PROFILE_BINARY), *args], capture_output=True,
+                                          timeout=60)
+                self.assertEqual(profiled.returncode, 0, profiled.stderr.decode(errors="replace"))
+                self.assertEqual(profiled.stdout, plain.stdout)
+                metrics, report = map(json.loads, profiled.stderr.decode().splitlines())
+                self.assertEqual(metrics["stop"], "limit")
+                prefill, decode = report["profile"]["prefill"], report["profile"]["decode"]
+                self.assertEqual(prefill["tokens"], metrics["prompt_tokens"])
+                self.assertEqual(decode["tokens"], metrics["generated_tokens"] - 1)
+                for phase in (prefill, decode):
+                    self.assertLessEqual(sum(phase["steps_ms"].values()), phase["total_ms"] + 0.01)
+                    self.assertGreaterEqual(phase["unattributed_ms"], -0.01)
+                    self.assertLessEqual(phase["unattributed_ms"], 0.05 * phase["total_ms"] + 0.05)
+
     def test_published_greedy_output(self):
         output, stats = self.run_engine("-n", 200)
         self.assertEqual(output, EXPECTED.encode())
@@ -441,10 +464,12 @@ if __name__ == "__main__":
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--probe", type=Path, required=True)
     parser.add_argument("--prefill", type=Path, required=True)
+    parser.add_argument("--profile-binary", type=Path)
     args = parser.parse_args()
     BINARY = args.binary.resolve()
     PROBE = args.probe.resolve()
     PREFILL = args.prefill.resolve()
+    PROFILE_BINARY = args.profile_binary.resolve() if args.profile_binary else None
     if not MODEL.exists() or not TOKENIZER.exists():
         raise SystemExit("Missing test fixtures. Run `make test-models` first.")
     unittest.main(argv=["test_engine.py"], verbosity=2)

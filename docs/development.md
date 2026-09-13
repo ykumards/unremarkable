@@ -7,6 +7,7 @@
 | [prefill.cpp](../src/prefill.cpp) | Prompt chunks, batched projections, final-token logits |
 | [kernels.h](../src/kernels.h), [kernels.cpp](../src/kernels.cpp) | FP32 and Q8 kernels and buffer contracts |
 | [worker.h](../src/worker.h), [worker.cpp](../src/worker.cpp) | Split projection rows between the caller and one persistent worker |
+| [profile.h](../src/profile.h) | Per-step timing, compiled in only with `-DUNREMARKABLE_PROFILE` |
 | [sampler.h](../src/sampler.h), [sampler.cpp](../src/sampler.cpp) | Greedy or temperature/top-p next-token selection |
 | [tokenizer.cpp](../src/tokenizer.cpp) | Legacy and byte-level BPE tokenization |
 | [main.cpp](../src/main.cpp) | Arguments, prompt formatting, prefill/decode loop, timing |
@@ -43,3 +44,13 @@ into RAM once per process. FP32 and Q8 checkpoints are supported. `-j 2` splits 
 two threads; `-j 1` is the default. `-b 8` batches up to eight prompt tokens;
 `-b 1` skips unused logits without batching, and `-b 0` selects the original
 prefill loop for comparison. Decode still processes one token at a time.
+
+## Profiling
+
+```sh
+make build/unremarkable-profile  # host
+make tablet-profile              # produces build/unremarkable-armv7-profile
+```
+
+Profile builds add a second JSON line on stderr with per-step timings for
+prefill and decode. [Tablet timings](profile.md).

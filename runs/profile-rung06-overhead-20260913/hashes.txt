@@ -1,0 +1,3 @@
+a82eb17e87b87afe0b27c0cec0ea6dc60c90c12d832ce15ef3740931056aaa5f  benchmarks/rung06-six-op-armv7
+6da251f1cd8babd66c1022d0ea5954394c5e83073b7a8b54fd5621d31dd73ad2  benchmarks/rung06-default-armv7
+00d95b2dbcb8a745ab45a4a3eb867d31329047df3634d2af88e21ae602a4285b  benchmarks/rung06-profile-armv7

@@ -63,10 +63,21 @@ void Engine::reset() {
   next_position_ = 0;
 }
 
+#ifdef UNREMARKABLE_PROFILE
+Profile Engine::profile() const {
+  Profile totals = profiler_.totals();
+  totals.waiting = worker_.waiting_seconds();
+  totals.worker = worker_.busy_seconds();
+  return totals;
+}
+#endif
+
 void Engine::project(const float* input, const Matrix& weight, float* output) {
   const bool quantized = weight.format == Format::kQ8_0;
   if (quantized) {
+    const double started = profiler_.clock();
     quantize_q8(input, weight.columns, scratch_.quantized.data());
+    profiler_.quantized(started);
   }
   const size_t stride = row_bytes(weight.format, weight.columns);
   worker_.run(weight.rows, [&](int begin, int end) {
@@ -101,7 +112,9 @@ std::span<float> Engine::forward(int token, int position) {
   float* up = scratch_.up.data();
 
   // 1. Token ID -> one embedding row -> the running FP32 activation [dim].
+  profiler_.begin();
   embedding_lookup(model_.embedding, token, residual);
+  profiler_.lap(Stage::kEmbedding);
 
   for (int layer = 0; layer < config_.n_layers; ++layer) {
     const LayerWeights& weights = model_.layers[layer];
@@ -112,29 +125,43 @@ std::span<float> Engine::forward(int token, int position) {
 
     // 2. Attention. K/V write directly into this token's persistent cache slots.
     rmsnorm(residual, weights.attention_norm.data(), dim, normalized);
+    profiler_.lap(Stage::kNorm);
     project(normalized, weights.query, query);
     project(normalized, weights.key, key);
     project(normalized, weights.value, value);
+    profiler_.lap(Stage::kQkv);
     rope_inplace(position, head_size, dim, kv_dim, config_.rope_theta, query, key);
+    profiler_.lap(Stage::kRope);
     causal_attention(query, key_history, value_history, config_.n_heads, config_.n_kv_heads,
                      head_size, config_.seq_len, position, scratch_.attention_scores.data(),
                      attention_output);
+    profiler_.lap(Stage::kAttention);
     project(attention_output, weights.attention_output, projected);
+    profiler_.lap(Stage::kOutput);
     add_inplace(projected, dim, residual);
+    profiler_.lap(Stage::kResidual);
 
     // 3. Feed-forward. Expand to [hidden_dim], gate, project back to [dim].
     rmsnorm(residual, weights.feed_forward_norm.data(), dim, normalized);
+    profiler_.lap(Stage::kNorm);
     project(normalized, weights.gate, gate);
     project(normalized, weights.up, up);
+    profiler_.lap(Stage::kGateUp);
     swiglu_inplace(up, config_.hidden_dim, gate);
+    profiler_.lap(Stage::kSwiGLU);
     project(gate, weights.down, projected);
+    profiler_.lap(Stage::kDown);
     add_inplace(projected, dim, residual);
+    profiler_.lap(Stage::kResidual);
   }
 
   // 4. Final activation -> one score for every possible next token.
   rmsnorm(residual, model_.final_norm.data(), dim, residual);
+  profiler_.lap(Stage::kNorm);
   project(residual, model_.classifier, scratch_.logits.data());
+  profiler_.lap(Stage::kClassifier);
   ++next_position_;
+  profiler_.end();
   return scratch_.logits;
 }
 

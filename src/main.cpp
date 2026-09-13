@@ -158,6 +158,9 @@ void generate(unremarkable::Engine& engine, const unremarkable::Tokenizer& token
     logits = engine.prefill(tokens, options.batch);
   }
   double prefill_seconds = now() - prefill_start;
+#ifdef UNREMARKABLE_PROFILE
+  const unremarkable::Profile after_prefill = engine.profile();
+#endif
   int previous = tokens.back();
   int pos = prompt_tokens, generated = 0, decode_tokens = 0;
   double decode_seconds = 0, ttft_seconds = 0;
@@ -218,6 +221,11 @@ void generate(unremarkable::Engine& engine, const unremarkable::Tokenizer& token
                ttft_seconds * 1000, decode_seconds * 1000,
                decode_seconds > 0 ? decode_tokens / decode_seconds : 0, elapsed * 1000,
                engine.weight_bytes() / 1048576.0, engine.kv_bytes() / 1048576.0, rss_mib);
+#ifdef UNREMARKABLE_PROFILE
+  const unremarkable::Profile total = engine.profile();
+  std::fprintf(stderr, "{\"profile\":{\"prefill\":%s,\"decode\":%s}}\n",
+               after_prefill.json().c_str(), (total - after_prefill).json().c_str());
+#endif
 }
 
 void usage(const char* program) {
