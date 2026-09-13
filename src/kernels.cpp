@@ -15,23 +15,65 @@
 namespace unremarkable {
 namespace {
 
-// int8 products fit int16, and vpadal widens to int32 before eight can overflow.
-int32_t dot_q8(const int8_t* a, const int8_t* b) {
+// One FP32 row. Prefetch weights 256 bytes ahead while processing 16 floats.
+float dot_fp32(const float* weights, const float* input, int size) {
+  constexpr int floats_per_block = 16;
+  constexpr int prefetch_ahead = 64;
+  float sum = 0;
+  int column = 0;
 #if defined(__ARM_NEON) && !defined(UNREMARKABLE_SCALAR)
-  const int8x16_t a0 = vld1q_s8(a);
-  const int8x16_t a1 = vld1q_s8(a + 16);
-  const int8x16_t b0 = vld1q_s8(b);
-  const int8x16_t b1 = vld1q_s8(b + 16);
-  int32x4_t acc = vpadalq_s16(vdupq_n_s32(0), vmull_s8(vget_low_s8(a0), vget_low_s8(b0)));
-  acc = vpadalq_s16(acc, vmull_s8(vget_high_s8(a0), vget_high_s8(b0)));
-  acc = vpadalq_s16(acc, vmull_s8(vget_low_s8(a1), vget_low_s8(b1)));
-  acc = vpadalq_s16(acc, vmull_s8(vget_high_s8(a1), vget_high_s8(b1)));
-  const int32x2_t pair = vadd_s32(vget_low_s32(acc), vget_high_s32(acc));
+  // 16 independent partial sums; this reorders the additions.
+  float32x4_t sums0 = vdupq_n_f32(0);
+  float32x4_t sums1 = vdupq_n_f32(0);
+  float32x4_t sums2 = vdupq_n_f32(0);
+  float32x4_t sums3 = vdupq_n_f32(0);
+  for (; column <= size - floats_per_block; column += floats_per_block) {
+    __builtin_prefetch(weights + column + prefetch_ahead);
+    const float* w = weights + column;
+    const float* x = input + column;
+    sums0 = vaddq_f32(sums0, vmulq_f32(vld1q_f32(w), vld1q_f32(x)));
+    sums1 = vaddq_f32(sums1, vmulq_f32(vld1q_f32(w + 4), vld1q_f32(x + 4)));
+    sums2 = vaddq_f32(sums2, vmulq_f32(vld1q_f32(w + 8), vld1q_f32(x + 8)));
+    sums3 = vaddq_f32(sums3, vmulq_f32(vld1q_f32(w + 12), vld1q_f32(x + 12)));
+  }
+  float32x4_t sums = vaddq_f32(vaddq_f32(sums0, sums1), vaddq_f32(sums2, sums3));
+  for (; column <= size - 4; column += 4) {
+    sums = vaddq_f32(sums, vmulq_f32(vld1q_f32(weights + column), vld1q_f32(input + column)));
+  }
+  float32x2_t halves = vadd_f32(vget_low_f32(sums), vget_high_f32(sums));
+  sum = vget_lane_f32(vpadd_f32(halves, halves), 0);
+#else
+  while (column <= size - floats_per_block) {
+    __builtin_prefetch(weights + column + prefetch_ahead);
+    for (const int end = column + floats_per_block; column < end; ++column) {
+      sum += weights[column] * input[column];
+    }
+  }
+#endif
+  for (; column < size; ++column) {
+    sum += weights[column] * input[column];
+  }
+  return sum;
+}
+
+// One 32-value Q8 block. Multiply into int16, then widen sums to int32.
+int32_t dot_q8_block(const int8_t* weights, const int8_t* input) {
+#if defined(__ARM_NEON) && !defined(UNREMARKABLE_SCALAR)
+  const int8x16_t weights0 = vld1q_s8(weights);
+  const int8x16_t weights1 = vld1q_s8(weights + 16);
+  const int8x16_t input0 = vld1q_s8(input);
+  const int8x16_t input1 = vld1q_s8(input + 16);
+  int32x4_t sums =
+      vpadalq_s16(vdupq_n_s32(0), vmull_s8(vget_low_s8(weights0), vget_low_s8(input0)));
+  sums = vpadalq_s16(sums, vmull_s8(vget_high_s8(weights0), vget_high_s8(input0)));
+  sums = vpadalq_s16(sums, vmull_s8(vget_low_s8(weights1), vget_low_s8(input1)));
+  sums = vpadalq_s16(sums, vmull_s8(vget_high_s8(weights1), vget_high_s8(input1)));
+  const int32x2_t pair = vadd_s32(vget_low_s32(sums), vget_high_s32(sums));
   return vget_lane_s32(vpadd_s32(pair, pair), 0);
 #else
   int32_t sum = 0;
   for (int i = 0; i < kQuantGroup; i++) {
-    sum += a[i] * b[i];
+    sum += weights[i] * input[i];
   }
   return sum;
 #endif
@@ -69,49 +111,11 @@ void softmax_inplace(float* values, int size) {
   }
 }
 
-// Each output is one row's dot product. Each weight cache line is prefetched
-// 256 bytes ahead so the loop does not stall on every miss.
 void matvec(const float* input, Matrix weight, float* output) {
-  constexpr int floats_per_line = 16;
-  constexpr int prefetch_ahead = 64;
+  const float* rows = reinterpret_cast<const float*>(weight.data);
   for (int row = 0; row < weight.rows; ++row) {
-    const float* weights =
-        reinterpret_cast<const float*>(weight.data) + static_cast<size_t>(row) * weight.columns;
-    float sum = 0;
-    int column = 0;
-#if defined(__ARM_NEON) && !defined(UNREMARKABLE_SCALAR)
-    // 16 independent partial sums; this reorders the additions.
-    float32x4_t sums0 = vdupq_n_f32(0);
-    float32x4_t sums1 = vdupq_n_f32(0);
-    float32x4_t sums2 = vdupq_n_f32(0);
-    float32x4_t sums3 = vdupq_n_f32(0);
-    for (; column <= weight.columns - floats_per_line; column += floats_per_line) {
-      __builtin_prefetch(weights + column + prefetch_ahead);
-      const float* w = weights + column;
-      const float* x = input + column;
-      sums0 = vaddq_f32(sums0, vmulq_f32(vld1q_f32(w), vld1q_f32(x)));
-      sums1 = vaddq_f32(sums1, vmulq_f32(vld1q_f32(w + 4), vld1q_f32(x + 4)));
-      sums2 = vaddq_f32(sums2, vmulq_f32(vld1q_f32(w + 8), vld1q_f32(x + 8)));
-      sums3 = vaddq_f32(sums3, vmulq_f32(vld1q_f32(w + 12), vld1q_f32(x + 12)));
-    }
-    float32x4_t sums = vaddq_f32(vaddq_f32(sums0, sums1), vaddq_f32(sums2, sums3));
-    for (; column <= weight.columns - 4; column += 4) {
-      sums = vaddq_f32(sums, vmulq_f32(vld1q_f32(weights + column), vld1q_f32(input + column)));
-    }
-    float32x2_t halves = vadd_f32(vget_low_f32(sums), vget_high_f32(sums));
-    sum = vget_lane_f32(vpadd_f32(halves, halves), 0);
-#else
-    while (column <= weight.columns - floats_per_line) {
-      __builtin_prefetch(weights + column + prefetch_ahead);
-      for (const int end = column + floats_per_line; column < end; ++column) {
-        sum += weights[column] * input[column];
-      }
-    }
-#endif
-    for (; column < weight.columns; ++column) {
-      sum += weights[column] * input[column];
-    }
-    output[row] = sum;
+    const float* weights = rows + static_cast<size_t>(row) * weight.columns;
+    output[row] = dot_fp32(weights, input, weight.columns);
   }
 }
 
@@ -147,7 +151,7 @@ void matvec_q8(const Q8Block* input, Matrix weight, float* output) {
     float sum = 0;
     for (int b = 0; b < blocks; ++b) {
       __builtin_prefetch(reinterpret_cast<const char*>(groups + b) + 256);
-      const int32_t dot = dot_q8(groups[b].values, input[b].values);
+      const int32_t dot = dot_q8_block(groups[b].values, input[b].values);
       sum += static_cast<float>(dot) * (groups[b].scale * input[b].scale);
     }
     output[row] = sum;
