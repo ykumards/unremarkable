@@ -18,15 +18,14 @@ TinyStories 15M and SmolLM2-135M-Instruct, with optional tablet UI patches.
 
 SmolLM2-135M, Q8, two cores: **2.708 GB/s ÷ 0.151 GB/token ≈ 17.9 tok/s**
 memory-only ceiling. [Calculation](docs/optimizations.md#memory-ceiling)
-· [FP32 baseline runs](docs/optimizations.md#measured-01-on-the-tablet-2026-09-12)
-· [Prefetch runs](docs/optimizations.md#measured-02-on-the-tablet-2026-09-12)
-· [SIMD runs](docs/optimizations.md#measured-03-on-the-tablet-2026-09-12)
-· [Q8 run](docs/optimizations.md#measured-04-on-the-tablet-2026-09-12)
-· [Two-thread runs](docs/optimizations.md#measured-05-on-the-tablet-2026-09-13)
-· [Six-op runs](docs/optimizations.md#measured-06-on-the-tablet-2026-09-13)
-· [Serial-step runs](docs/optimizations.md#measured-08-on-the-tablet-2026-09-13)
-· [Attention runs](docs/optimizations.md#measured-09-on-the-tablet-2026-09-13)
-· [Grouping runs](docs/optimizations.md#measured-10-on-the-tablet-2026-09-13).
+· [Benchmarks and changes](docs/optimizations.md).
+
+<a href="docs/optimizations.md">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/performance-dark.svg">
+    <img src="assets/performance-light.svg" alt="Decode throughput across ten rungs, from 1.08 to 7.28 tokens/s. The largest jumps are Q8 weights and two-core inference.">
+  </picture>
+</a>
 
 Batched prefill cuts the wait for the first token from **3.94 s to 2.64 s** on
 our 26-token prompt. [Runs](docs/optimizations.md#measured-07-on-the-tablet-2026-09-13)

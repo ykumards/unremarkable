@@ -58,3 +58,8 @@ make tablet-profile              # produces build/unremarkable-armv7-profile
 
 Profile builds add a second JSON line on stderr with per-step timings for
 prefill and decode. [Tablet timings](profile.md).
+
+## Performance chart
+
+`uv run tools/plot_progress.py` rebuilds the README’s light/dark SVGs from the
+selected raw runs. Add each new rung to `RUNGS` in that script.
