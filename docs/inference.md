@@ -40,8 +40,41 @@ Weights are loaded once per engine process, not on each forward pass.
 
 [main.cpp](../src/main.cpp) wraps chat prompts when required, then calls the
 [tokenizer](../src/tokenizer.cpp). Each token is an integer ID.
-The CLI prefills by calling `forward(token, position)` for each prompt token in
-order. Prefill and decode use the same one-token path.
+The CLI calls `Engine::prefill()` with the prompt IDs. It processes chunks of
+up to eight tokens, then returns the last token's logits. Decode calls
+`forward(token, position)` once per generated token, as described below.
+
+### Batched prefill
+
+[prefill.cpp](../src/prefill.cpp) follows the same layer operations, with a row
+of activations per prompt token. For a chunk of eight:
+
+```text
+Decode:  x[576]     × W[rows, 576]ᵀ → y[rows]       (GEMV)
+Prefill: X[8, 576]  × W[rows, 576]ᵀ → Y[8, rows]    (GEMM)
+```
+
+We know all prompt IDs in advance. Each chunk passes through all layers before
+starting the next chunk. Within a layer, Q/K/V and feed-forward projections
+process the whole chunk. RoPE uses each token's absolute position; attention
+only reads K/V through that position, even if later slots are already written.
+The cache layout is unchanged.
+
+The first GEMM kernel loops over weight rows, then tokens, then columns (Q8
+blocks for quantized weights). Each row is reused from cache across the chunk;
+the dot product still loads it into registers for each token. There is no packed
+weight format or register tiling yet. Both cores split output columns of `Y`,
+so one worker wake/wait covers a projection for the whole chunk.
+
+Only the final prompt token needs vocabulary scores. Earlier tokens skip the
+final norm and classifier; their layer K/V entries are still computed. With
+Q8 weights, the eight-slot scratch adds about 175 KiB for SmolLM2. It is allocated
+once, and decode reuses the first slot. Attention scores and logits stay unbatched.
+
+`-b 8` is the default. `-b 1` isolates skipping unused vocabulary scores;
+`-b 0` runs the original `forward()` loop, including every classifier. Neither
+option changes decode. The returned logits are borrowed until the next
+`forward()` or `prefill()` call.
 
 ## 3. Look up the embedding
 

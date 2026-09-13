@@ -23,16 +23,18 @@ struct KVCache {
   std::vector<float> values;  // [layer, context, kv_dim]
 };
 
-// One token's working memory. Allocated once and overwritten in forward().
+inline constexpr int kMaxPrefillBatch = 8;
+
+// Working memory for up to eight tokens. Decode reuses the first token slot.
 struct Scratch {
   explicit Scratch(const Config& config);
-  std::vector<float> residual;          // [dim], carried through all layers
-  std::vector<float> normalized;        // [dim]
-  std::vector<float> query;             // [dim]
-  std::vector<float> attention_output;  // [dim]
-  std::vector<float> projected;         // [dim], reused for both residual additions
-  std::vector<float> gate;              // [hidden_dim], overwritten by SwiGLU
-  std::vector<float> up;                // [hidden_dim]
+  std::vector<float> residual;          // [batch, dim], carried through all layers
+  std::vector<float> normalized;        // [batch, dim]
+  std::vector<float> query;             // [batch, dim]
+  std::vector<float> attention_output;  // [batch, dim]
+  std::vector<float> projected;         // [batch, dim], reused for both residual additions
+  std::vector<float> gate;              // [batch, hidden_dim], overwritten by SwiGLU
+  std::vector<float> up;                // [batch, hidden_dim]
   std::vector<float> attention_scores;  // [n_heads, context]
   std::vector<float> logits;            // [vocab_size]
   std::vector<Q8Block> quantized;       // projection input, for Q8_0 weights only
@@ -50,18 +52,26 @@ class Engine {
   size_t kv_bytes() const { return cache_.bytes(); }
 
   // One token in, next-token scores out. Positions must be consecutive from 0.
-  // The returned span borrows scratch_.logits; the next forward overwrites it.
+  // The returned span borrows scratch_.logits; forward or prefill overwrites it.
   std::span<float> forward(int token, int position);
+
+  // Append prompt tokens to the cached prefix. Returns only the final logits.
+  // The returned span borrows the same buffer as forward().
+  // Rejects empty inputs, invalid tokens, and context overflow before changing state.
+  std::span<float> prefill(std::span<const int> tokens, int batch_size = kMaxPrefillBatch);
   void reset();
 
  private:
   // output = weight * input, quantizing the input first for Q8_0 weights.
   void project(const float* input, const Matrix& weight, float* output);
 
+  void project_batch(const float* input, const Matrix& weight, int count, float* output);
+  void prefill_chunk(std::span<const int> tokens);
+
   Model model_;       // Permanent learned weights.
   Config config_;     // Model dimensions, with the selected context capacity.
   KVCache cache_;     // History of the current sequence.
-  Scratch scratch_;   // Temporary calculations for the current token.
+  Scratch scratch_;   // Temporary calculations for a token or prompt chunk.
   RowWorker worker_;  // Joined before scratch and model storage are destroyed.
   int next_position_ = 0;
 };

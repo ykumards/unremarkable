@@ -160,6 +160,36 @@ void matvec_q8(const Q8Block* input, Matrix weight, float* output) {
   }
 }
 
+// Keep a weight row hot while applying it to every token in the batch.
+void matmul(const float* input, Matrix weight, int count, int output_stride, float* output) {
+  const float* rows = reinterpret_cast<const float*>(weight.data);
+  for (int row = 0; row < weight.rows; ++row) {
+    const float* weights = rows + static_cast<size_t>(row) * weight.columns;
+    for (int token = 0; token < count; ++token) {
+      output[static_cast<size_t>(token) * output_stride + row] =
+          dot_fp32(weights, input + static_cast<size_t>(token) * weight.columns, weight.columns);
+    }
+  }
+}
+
+void matmul_q8(const Q8Block* input, Matrix weight, int count, int output_stride, float* output) {
+  const int blocks = q8_blocks(weight.columns);
+  const Q8Block* rows = reinterpret_cast<const Q8Block*>(weight.data);
+  for (int row = 0; row < weight.rows; ++row) {
+    const Q8Block* weights = rows + static_cast<size_t>(row) * blocks;
+    for (int token = 0; token < count; ++token) {
+      const Q8Block* values = input + static_cast<size_t>(token) * blocks;
+      float sum = 0;
+      for (int b = 0; b < blocks; ++b) {
+        __builtin_prefetch(reinterpret_cast<const char*>(weights + b) + 256);
+        const int32_t dot = dot_q8_block(weights[b].values, values[b].values);
+        sum += static_cast<float>(dot) * (weights[b].scale * values[b].scale);
+      }
+      output[static_cast<size_t>(token) * output_stride + row] = sum;
+    }
+  }
+}
+
 void embedding_lookup(Matrix table, int token, float* output) {
   const std::byte* row =
       table.data + static_cast<size_t>(token) * row_bytes(table.format, table.columns);

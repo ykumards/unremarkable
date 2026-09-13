@@ -21,6 +21,13 @@ void quantize_q8(const float* input, int size, Q8Block* output);
 // be in [-127, 127]; weight values may use the full int8 range.
 void matvec_q8(const Q8Block* input, Matrix weight, float* output);
 
+// X[count, columns] * W[rows, columns]^T. Inputs are contiguous token rows;
+// Q8 inputs contain q8_blocks(columns) blocks per token. Output token rows are
+// output_stride floats apart, allowing workers to write separate matrix rows.
+// Buffers must not overlap. Q8 input values have the same bounds as matvec_q8.
+void matmul(const float* input, Matrix weight, int count, int output_stride, float* output);
+void matmul_q8(const Q8Block* input, Matrix weight, int count, int output_stride, float* output);
+
 // Copy row `token` of the embedding table into output [table.columns].
 void embedding_lookup(Matrix table, int token, float* output);
 

@@ -4,6 +4,7 @@
 | --- | --- |
 | [model.h](../src/model.h), [model.cpp](../src/model.cpp) | Checkpoint loading, immutable weight views, tensor dimensions |
 | [engine.h](../src/engine.h), [engine.cpp](../src/engine.cpp) | Scratch and KV ownership, reset, one-token forward pass |
+| [prefill.cpp](../src/prefill.cpp) | Prompt chunks, batched projections, final-token logits |
 | [kernels.h](../src/kernels.h), [kernels.cpp](../src/kernels.cpp) | FP32 and Q8 kernels and buffer contracts |
 | [worker.h](../src/worker.h), [worker.cpp](../src/worker.cpp) | Split projection rows between the caller and one persistent worker |
 | [sampler.h](../src/sampler.h), [sampler.cpp](../src/sampler.cpp) | Greedy or temperature/top-p next-token selection |
@@ -17,6 +18,9 @@ The worker tests cover row coverage, repeated jobs, shutdown, and thread limits;
 the forward tests compare one-thread and two-thread logits and reset. Q8 kernel
 tests cover all supported input/weight pairs, mixed lanes, scales, and tails
 on both NEON and scalar paths.
+Prefill tests compare exact logits and subsequent decode against sequential
+forward passes: FP32/Q8, one/two threads, prefixes, partial chunks, reset,
+context boundaries, and rejected inputs.
 `make check-format` enforces the repository's 100-column C++ style.
 
 For TinyStories fixtures run `make test-models` first. Tokenizer parity tests also
@@ -36,4 +40,6 @@ executable and matching model/tokenizer to a directory under
 
 Output text goes to stdout and timing JSON to stderr. The full model is loaded
 into RAM once per process. FP32 and Q8 checkpoints are supported. `-j 2` splits projection rows across
-two threads; `-j 1` is the default. Tokens are still processed one at a time.
+two threads; `-j 1` is the default. `-b 8` batches up to eight prompt tokens;
+`-b 1` skips unused logits without batching, and `-b 0` selects the original
+prefill loop for comparison. Decode still processes one token at a time.

@@ -28,7 +28,7 @@ memory-only ceiling. [Calculation](docs/optimizations.md#memory-ceiling)
 ## Code and docs
 
 - [Inference](docs/inference.md): follow a token through memory and the model.
-- [Forward pass](src/engine.cpp) · [Kernels](src/kernels.cpp)
+- [Forward pass](src/engine.cpp) · [Batched prefill](src/prefill.cpp) · [Kernels](src/kernels.cpp)
 - [Optimization ladder](docs/optimizations.md): changes, measurements, and diffs.
 
 ## Run locally

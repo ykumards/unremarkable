@@ -3,9 +3,9 @@ CXXFLAGS ?= -O2 -std=c++23 -Wall -Wextra -Wpedantic -ffp-contract=off
 CPPFLAGS ?= -Isrc -D_FILE_OFFSET_BITS=64
 LDLIBS = -lm -pthread
 PYTHON ?= python3
-SOURCES = src/main.cpp src/engine.cpp src/model.cpp src/sampler.cpp src/worker.cpp src/kernels.cpp src/tokenizer.cpp
+SOURCES = src/main.cpp src/engine.cpp src/prefill.cpp src/model.cpp src/sampler.cpp src/worker.cpp src/kernels.cpp src/tokenizer.cpp
 HEADERS = src/engine.h src/model.h src/sampler.h src/worker.h src/kernels.h src/tokenizer.h
-CORE = src/engine.cpp src/model.cpp src/sampler.cpp src/worker.cpp src/kernels.cpp src/tokenizer.cpp
+CORE = src/engine.cpp src/prefill.cpp src/model.cpp src/sampler.cpp src/worker.cpp src/kernels.cpp src/tokenizer.cpp
 
 .PHONY: all test sanitize models test-models chat-model chat-model-q8 accuracy tablet tablet-image
 all: build/unremarkable
@@ -75,16 +75,16 @@ build/probe-sanitize: tests/probe.cpp $(CORE) $(HEADERS) Makefile | build
 	$(CXX) $(CPPFLAGS) -O1 -g -std=c++23 -Wall -Wextra -ffp-contract=off \
 		-fsanitize=address,undefined -fno-omit-frame-pointer tests/probe.cpp $(CORE) $(LDLIBS) -o $@
 
-test: build/unremarkable build/probe build/test-worker build/test-q8 build/test-q8-scalar
+test: build/unremarkable build/probe build/test-prefill build/test-worker build/test-q8 build/test-q8-scalar
 	./build/test-q8
 	./build/test-q8-scalar
 	./build/test-worker
-	$(PYTHON) tests/test_engine.py --binary build/unremarkable --probe build/probe
+	$(PYTHON) tests/test_engine.py --binary build/unremarkable --probe build/probe --prefill build/test-prefill
 
-sanitize: build/unremarkable-sanitize build/probe-sanitize build/test-worker-sanitize build/test-q8-sanitize
+sanitize: build/unremarkable-sanitize build/probe-sanitize build/test-prefill-sanitize build/test-worker-sanitize build/test-q8-sanitize
 	./build/test-q8-sanitize
 	./build/test-worker-sanitize
-	$(PYTHON) tests/test_engine.py --binary build/unremarkable-sanitize --probe build/probe-sanitize
+	$(PYTHON) tests/test_engine.py --binary build/unremarkable-sanitize --probe build/probe-sanitize --prefill build/test-prefill-sanitize
 
 build/test-worker: tests/worker.cpp src/worker.cpp src/worker.h Makefile | build
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) tests/worker.cpp src/worker.cpp $(LDLIBS) -o $@
@@ -103,11 +103,18 @@ build/test-q8-sanitize: tests/q8.cpp src/kernels.cpp src/kernels.h src/model.h M
 	$(CXX) $(CPPFLAGS) -O1 -g -std=c++23 -ffp-contract=off -fsanitize=address,undefined \
 		-fno-omit-frame-pointer tests/q8.cpp src/kernels.cpp $(LDLIBS) -o $@
 
+build/test-prefill: tests/prefill.cpp $(CORE) $(HEADERS) Makefile | build
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) tests/prefill.cpp $(CORE) $(LDLIBS) -o $@
+
+build/test-prefill-sanitize: tests/prefill.cpp $(CORE) $(HEADERS) Makefile | build
+	$(CXX) $(CPPFLAGS) -O1 -g -std=c++23 -ffp-contract=off -fsanitize=address,undefined \
+		-fno-omit-frame-pointer tests/prefill.cpp $(CORE) $(LDLIBS) -o $@
+
 .PHONY: check check-sanitize format check-format
 check: test
 check-sanitize: sanitize
 CLANG_FORMAT ?= $(firstword $(shell command -v clang-format 2>/dev/null) $(wildcard /opt/homebrew/opt/llvm@21/bin/clang-format /opt/homebrew/opt/llvm/bin/clang-format) clang-format)
 format:
-	$(CLANG_FORMAT) -i $(SOURCES) $(HEADERS) tests/probe.cpp tests/worker.cpp tests/q8.cpp tools/perplexity.cpp
+	$(CLANG_FORMAT) -i $(SOURCES) $(HEADERS) tests/probe.cpp tests/worker.cpp tests/q8.cpp tests/prefill.cpp tools/perplexity.cpp
 check-format:
-	$(CLANG_FORMAT) --dry-run --Werror $(SOURCES) $(HEADERS) tests/probe.cpp tests/worker.cpp tests/q8.cpp tools/perplexity.cpp
+	$(CLANG_FORMAT) --dry-run --Werror $(SOURCES) $(HEADERS) tests/probe.cpp tests/worker.cpp tests/q8.cpp tests/prefill.cpp tools/perplexity.cpp

@@ -42,6 +42,7 @@ struct Options {
   int limit = 256;
   int context = 0;
   int threads = 1;
+  int batch = unremarkable::kMaxPrefillBatch;
   int seed = 1;
   float temperature = 0;
   float top_p = 0.9f;
@@ -85,6 +86,11 @@ Options parse_options(int argc, char** argv) {
       options.limit = positive_int(value);
     } else if (flag == "-c") {
       options.context = positive_int(value);
+    } else if (flag == "-b") {
+      options.batch = std::string_view(value) == "0" ? 0 : positive_int(value);
+      if (options.batch > unremarkable::kMaxPrefillBatch) {
+        throw std::runtime_error("prefill batch must be between 0 and 8");
+      }
     } else if (flag == "-j") {
       options.threads = positive_int(value);
       if (options.threads > 2) {
@@ -143,8 +149,13 @@ void generate(unremarkable::Engine& engine, const unremarkable::Tokenizer& token
 
   double prefill_start = now();
   std::span<float> logits;
-  for (int pos = 0; pos < prompt_tokens; pos++) {
-    logits = engine.forward(tokens[pos], pos);
+  if (options.batch == 0) {
+    // Comparison path: the original token-at-a-time prefill, including every classifier.
+    for (int pos = 0; pos < prompt_tokens; pos++) {
+      logits = engine.forward(tokens[pos], pos);
+    }
+  } else {
+    logits = engine.prefill(tokens, options.batch);
   }
   double prefill_seconds = now() - prefill_start;
   int previous = tokens.back();
@@ -196,16 +207,17 @@ void generate(unremarkable::Engine& engine, const unremarkable::Tokenizer& token
   double rss_mib = usage.ru_maxrss / 1024.0;
 #endif
   std::fprintf(stderr,
-               "{\"threads\":%d,\"prompt_tokens\":%d,\"generated_tokens\":%d,\"decode_tokens\":%d,"
+               "{\"prefill_batch\":%d,\"threads\":%d,\"prompt_tokens\":%d,\"generated_tokens\":%d,"
+               "\"decode_tokens\":%d,"
                "\"context\":%d,\"stop\":\"%s\",\"load_ms\":%.3f,\"prefill_ms\":%.3f,"
                "\"ttft_ms\":%.3f,\"decode_ms\":%.3f,\"decode_tok_s\":%.3f,"
                "\"generation_ms\":%.3f,\"weights_mib\":%.3f,\"kv_cache_mib\":%.3f,"
                "\"peak_rss_mib\":%.3f}\n",
-               engine.threads(), prompt_tokens, generated, decode_tokens, engine.config().seq_len,
-               stop, load_seconds * 1000, prefill_seconds * 1000, ttft_seconds * 1000,
-               decode_seconds * 1000, decode_seconds > 0 ? decode_tokens / decode_seconds : 0,
-               elapsed * 1000, engine.weight_bytes() / 1048576.0, engine.kv_bytes() / 1048576.0,
-               rss_mib);
+               options.batch, engine.threads(), prompt_tokens, generated, decode_tokens,
+               engine.config().seq_len, stop, load_seconds * 1000, prefill_seconds * 1000,
+               ttft_seconds * 1000, decode_seconds * 1000,
+               decode_seconds > 0 ? decode_tokens / decode_seconds : 0, elapsed * 1000,
+               engine.weight_bytes() / 1048576.0, engine.kv_bytes() / 1048576.0, rss_mib);
 }
 
 void usage(const char* program) {
@@ -214,6 +226,7 @@ void usage(const char* program) {
                "  -n N      maximum new tokens, excluding prompt (default 256)\n"
                "  -c N      context capacity, at most model maximum (default model "
                "maximum)\n"
+               "  -b N      prefill batch 1..8; 0 uses legacy prefill (default 8)\n"
                "  -j N      CPU threads: 1 or 2 (default 1)\n"
                "  -t TEMP   temperature; 0 means greedy (default 0)\n"
                "  -p TOP_P  nucleus probability; 0 or 1 disables filtering (default "
