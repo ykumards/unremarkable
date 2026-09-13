@@ -62,11 +62,19 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
             property string storyText: ""
             property string storyStatus: "idle"
             property var storyMeta: null
+            property real storyStarted: 0
+            property int storyElapsed: 0
 
             CommandExecutor { id: storyRunner }
 
             function askStoryFrom(items) {
                 askingStory = true;
+                root.storyEntry = "";
+                root.storyText = "";
+                root.storyMeta = null;
+                root.storyStatus = "reading";
+                storyPopup.parent = storyTopLevel();
+                storyPopup.open();
                 Recognizer.startSelectionToolJob(items,
                     Settings.handwritingConversionLanguage);
             }
@@ -108,18 +116,26 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
                 xhr.send();
             }
 
-            function storyPoll() {
+            function storyReadOutput() {
                 storyRead("/home/root/unremarkable/state/out.txt",
                           function(t) { root.storyText = t; });
-                storyRead("/home/root/unremarkable/state/status",
-                          function(s) {
-                              root.storyStatus = s;
-                              if (s === "done") storyTimer.stop();
-                          });
                 storyRead("/home/root/unremarkable/state/meta.json",
                           function(m) {
                               try { root.storyMeta = JSON.parse(m); }
                               catch (e) { root.storyMeta = null; }
+                          });
+            }
+
+            function storyPoll() {
+                root.storyElapsed = Math.round((Date.now() - root.storyStarted) / 1000);
+                storyReadOutput();
+                storyRead("/home/root/unremarkable/state/status",
+                          function(s) {
+                              if (s !== "done") return;
+                              // Text and stats land before status; read them once more.
+                              storyTimer.stop();
+                              storyReadOutput();
+                              root.storyStatus = "done";
                           });
             }
 
@@ -128,6 +144,8 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
                 root.storyText = "";
                 root.storyMeta = null;
                 root.storyStatus = "running";
+                root.storyStarted = Date.now();
+                root.storyElapsed = 0;
                 storyRunner.executeCommand("/home/root/unremarkable/ask-bg.sh",
                                            [entry, "240"]);
                 storyPopup.parent = storyTopLevel();
@@ -177,6 +195,8 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
                         Text {
                             text: root.storyStatus === "failed"
                                   ? "Couldn’t read the page"
+                                  : root.storyStatus === "reading"
+                                  ? "Reading your page…"
                                   : root.storyStatus === "running"
                                   ? "Writing a bedtime story…"
                                   : "A bedtime story"
@@ -217,6 +237,18 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
                             maximumLineCount: 16
                             elide: Text.ElideRight
                         }
+
+                        Text {
+                            width: 872
+                            visible: root.storyStatus === "done" && root.storyText !== ""
+                            text: "— sleep well —"
+                            font.family: "EB Garamond"
+                            font.italic: true
+                            font.pixelSize: 30
+                            color: "#000000"
+                            horizontalAlignment: Text.AlignHCenter
+                            topPadding: 28
+                        }
                     }
 
                     Column {
@@ -235,15 +267,19 @@ AFFECT /qml/device/view/documentview/HwcSelection.qml
                             color: "#000000"
                         }
                         Text {
-                            text: root.storyMeta
-                                  ? "ttft " + (root.storyMeta.ttft_ms / 1000).toFixed(1)
+                            text: root.storyStatus === "done" && root.storyMeta
+                                  ? "done in " + (root.storyMeta.generation_ms / 1000).toFixed(0)
+                                    + "s  ·  ttft " + (root.storyMeta.ttft_ms / 1000).toFixed(1)
                                     + "s  ·  " + root.storyMeta.decode_tok_s.toFixed(2)
-                                    + " tok/s  ·  " + root.storyMeta.generated_tokens
-                                    + " tok  ·  " + Math.round(root.storyMeta.peak_rss_mib)
-                                    + " MiB rss"
-                                  : root.storyStatus === "failed" ? ""
-                                  : "generating · " + root.wordCount(root.storyText)
-                                    + " words"
+                                    + " tok/s  ·  " + root.storyMeta.generated_tokens + " tok"
+                                  : root.storyStatus === "reading"
+                                  ? "recognizing handwriting · needs Wi-Fi"
+                                  : root.storyStatus === "running" && root.storyText === ""
+                                  ? "reading your entry · " + root.storyElapsed + "s"
+                                  : root.storyStatus === "running"
+                                  ? "writing · " + root.wordCount(root.storyText)
+                                    + " words · " + root.storyElapsed + "s"
+                                  : ""
                             font.family: "Noto Sans Mono"
                             font.pixelSize: 19
                             color: "#000000"
