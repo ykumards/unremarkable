@@ -10,19 +10,42 @@ from pathlib import Path
 import random
 import subprocess
 
+from prepare import diary_prompt
+
 WORDS = ["dragon", "lighthouse", "rain", "moon", "grandma", "robot", "sock", "cloud"]
+# Hand-written, not generated; keyed by a detail the story should keep.
+DIARIES = {
+    "oven": "Long day. Deadline moved up again and I skipped lunch. Came home and the oven "
+            "light finally died, so I cooked pasta in the half dark. Called mum, she sounded "
+            "well. Tired.",
+    "bus": "Missed the bus by ten seconds and walked in the rain. Soaked socks all morning. "
+           "But the new colleague brought cinnamon buns and we laughed about it.",
+    "basil": "Quiet Sunday. Repotted the basil, read two chapters, fell asleep on the sofa. "
+             "Garden needs weeding but not today.",
+    "interview": "Interview tomorrow at 9. Ironed my shirt twice. Can't stop going over the "
+                 "answers in my head. What if I freeze?",
+    "vet": "Took Rufus to the vet. Nothing serious, just a sore paw, but he looked so sorry "
+           "for himself. Bought him a new ball on the way home.",
+    "dishes": "Had a stupid argument with Sam about the dishes. We both apologised later. "
+              "Still feel a bit heavy.",
+    "snow": "First snow! Walked to work through the park, everything silent and white. Kids "
+            "building a snowman by the pond.",
+    "watch": "Miss grandpa today. Found his old watch in a drawer. It still ticks.",
+}
 
 
-def prompt(style, word):
+def prompt(style, case):
     if style == "chat":
-        return f"Tell me a bedtime story with the word {word}."
-    return f"Once upon a time, there was a little {word} who was getting ready for bed."
+        return f"Tell me a bedtime story with the word {case}."
+    if style == "diary":
+        return diary_prompt(DIARIES[case])
+    return f"Once upon a time, there was a little {case} who was getting ready for bed."
 
 
 def generate(engine, model, tokenizer, style, word, seed, limit):
     args = [str(engine), str(model), "-z", str(tokenizer), "-i", prompt(style, word),
             "-t", "0.8", "-p", "0.9", "-s", str(seed), "-n", str(limit), "-j", "2"]
-    if style == "chat":
+    if style != "opening":
         # The tablet's settings; TinyStories keeps its own 256-token context.
         args += ["-c", "512", "-y", ""]
     proc = subprocess.run(args, capture_output=True, text=True, timeout=600)
@@ -38,7 +61,10 @@ def main():
     parser.add_argument("--engine", type=Path, required=True)
     parser.add_argument("--model", nargs=4, action="append", required=True,
                         metavar=("LABEL", "CHECKPOINT", "TOKENIZER", "STYLE"),
-                        help="STYLE is chat (instruction) or opening (continuation)")
+                        help="STYLE is chat (word instruction), diary, or opening "
+                             "(continuation)")
+    parser.add_argument("--task", choices=("word", "diary"), default="word",
+                        help="diary uses the entries above; every model needs STYLE diary")
     parser.add_argument("--out", type=Path, default=here / "out" / "eval")
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--limit", type=int, default=300)
@@ -46,7 +72,7 @@ def main():
     args.out.mkdir(parents=True, exist_ok=True)
     rng = random.Random(args.seed)
     results, key, sheet = [], {}, ["# Bedtime stories, blind\n"]
-    for word in WORDS:
+    for word in (WORDS if args.task == "word" else DIARIES):
         stories = []
         for label, model, tokenizer, style in args.model:
             text, metrics = generate(args.engine, model, tokenizer, style, word, args.seed,

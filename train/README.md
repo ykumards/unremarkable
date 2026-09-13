@@ -30,3 +30,22 @@ python3 train/evaluate.py --engine build/unremarkable \
   --model finetuned models/bedtime-q8.bin models/bedtime-q8.tok chat \
   --model tinystories models/stories15M.bin models/tokenizer.bin opening
 ```
+
+## Stories from a diary entry
+
+`generate.py` has a larger model write diary entries (varied people, moods and
+days) and a short, gentle story from each entry alone. It speaks to any
+OpenAI-compatible server; we used Qwen3.5-9B AWQ on vLLM (set
+`VLLM_USE_FLASHINFER_SAMPLER=0` if FlashInfer's kernel build rejects your GCC).
+`prepare.py --diary` mixes the pairs with a TinyStories sample, and the tablet
+must build its prompt with `prepare.diary_prompt`.
+
+```sh
+vllm serve cyankiwi/Qwen3.5-9B-AWQ-4bit --port 8766 --max-model-len 2048 \
+  --served-model-name writer
+$PY train/generate.py --count 60000       # data/diary.jsonl; rerun to resume
+$PY train/prepare.py --diary train/data/diary.jsonl
+$PY train/finetune.py --examples 1000000  # the whole mix
+python3 train/evaluate.py --task diary --engine build/unremarkable \
+  --model diary models/diary-q8.bin models/diary-q8.tok diary
+```
