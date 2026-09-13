@@ -22,8 +22,18 @@ class RowWorker {
   // Calls must not overlap, and work must not throw. Small jobs stay on the caller.
   void run(int rows, const std::function<void(int, int)>& work);
 
+#ifdef UNREMARKABLE_PROFILE
+  // Elapsed seconds, including lock acquisition. Read after run() returns.
+  double waiting_seconds() const { return waiting_; }
+  double busy_seconds() const { return busy_; }
+#endif
+
  private:
   void loop();
+#ifdef UNREMARKABLE_PROFILE
+  double waiting_ = 0;
+  double busy_ = 0;
+#endif
 
   int threads_;
   std::mutex mutex_;

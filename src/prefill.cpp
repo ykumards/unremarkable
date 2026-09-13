@@ -14,11 +14,13 @@ void Engine::project_batch(const float* input, const Matrix& weight, int count, 
   }
   const bool quantized = weight.format == Format::kQ8_0;
   if (quantized) {
+    const double started = profiler_.clock();
     const int blocks = q8_blocks(weight.columns);
     for (int token = 0; token < count; ++token) {
       quantize_q8(input + static_cast<size_t>(token) * weight.columns, weight.columns,
                   scratch_.quantized.data() + static_cast<size_t>(token) * blocks);
     }
+    profiler_.quantized(started);
   }
   const size_t stride = row_bytes(weight.format, weight.columns);
   worker_.run(weight.rows, [&](int begin, int end) {
@@ -51,6 +53,7 @@ void Engine::prefill_chunk(std::span<const int> tokens) {
   for (int token = 0; token < count; ++token) {
     embedding_lookup(model_.embedding, tokens[token], residual + static_cast<size_t>(token) * dim);
   }
+  profiler_.lap(Stage::kEmbedding);
   for (int layer = 0; layer < config_.n_layers; ++layer) {
     const LayerWeights& weights = model_.layers[layer];
     float* key_history = cache_.keys_for_layer(layer);
@@ -62,14 +65,17 @@ void Engine::prefill_chunk(std::span<const int> tokens) {
       const size_t offset = static_cast<size_t>(token) * dim;
       rmsnorm(residual + offset, weights.attention_norm.data(), dim, normalized + offset);
     }
+    profiler_.lap(Stage::kNorm);
     project_batch(normalized, weights.query, count, query);
     project_batch(normalized, weights.key, count, keys);
     project_batch(normalized, weights.value, count, values);
+    profiler_.lap(Stage::kQkv);
     for (int token = 0; token < count; ++token) {
       rope_inplace(start + token, head_size, dim, kv_dim, config_.rope_theta,
                    query + static_cast<size_t>(token) * dim,
                    keys + static_cast<size_t>(token) * kv_dim);
     }
+    profiler_.lap(Stage::kRope);
     for (int token = 0; token < count; ++token) {
       const size_t offset = static_cast<size_t>(token) * dim;
       // All K/V slots exist, but each query only reads through its own position.
@@ -77,23 +83,30 @@ void Engine::prefill_chunk(std::span<const int> tokens) {
                        config_.n_kv_heads, head_size, config_.seq_len, start + token,
                        scratch_.attention_scores.data(), attention_output + offset);
     }
+    profiler_.lap(Stage::kAttention);
     project_batch(attention_output, weights.attention_output, count, projected);
+    profiler_.lap(Stage::kOutput);
     for (int token = 0; token < count; ++token) {
       const size_t offset = static_cast<size_t>(token) * dim;
       add_inplace(projected + offset, dim, residual + offset);
       rmsnorm(residual + offset, weights.feed_forward_norm.data(), dim, normalized + offset);
     }
+    profiler_.lap(Stage::kNorm);
     project_batch(normalized, weights.gate, count, gate);
     project_batch(normalized, weights.up, count, up);
+    profiler_.lap(Stage::kGateUp);
     for (int token = 0; token < count; ++token) {
       const size_t offset = static_cast<size_t>(token) * hidden;
       swiglu_inplace(up + offset, hidden, gate + offset);
     }
+    profiler_.lap(Stage::kSwiGLU);
     project_batch(gate, weights.down, count, projected);
+    profiler_.lap(Stage::kDown);
     for (int token = 0; token < count; ++token) {
       const size_t offset = static_cast<size_t>(token) * dim;
       add_inplace(projected + offset, dim, residual + offset);
     }
+    profiler_.lap(Stage::kResidual);
   }
   next_position_ += count;
 }
@@ -110,6 +123,7 @@ std::span<float> Engine::prefill(std::span<const int> tokens, int batch_size) {
       throw std::runtime_error("token ID out of range");
     }
   }
+  profiler_.begin();
   int last_count = 0;
   for (size_t offset = 0; offset < tokens.size(); offset += last_count) {
     last_count =
@@ -119,7 +133,10 @@ std::span<float> Engine::prefill(std::span<const int> tokens, int batch_size) {
   // Only the final prompt token needs vocabulary scores. Earlier logits are unused.
   float* last = scratch_.residual.data() + static_cast<size_t>(last_count - 1) * config_.dim;
   rmsnorm(last, model_.final_norm.data(), config_.dim, last);
+  profiler_.lap(Stage::kNorm);
   project(last, model_.classifier, scratch_.logits.data());
+  profiler_.lap(Stage::kClassifier);
+  profiler_.end(static_cast<int>(tokens.size()));
   return scratch_.logits;
 }
 

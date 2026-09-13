@@ -1,0 +1,4 @@
+5e911ec2d68ddf64164525af0d3fd6464c619aa938b109bc7dd6677ceec61ce2  benchmarks/rung05-default-armv7
+46db429ea22617ba1a5b130cac1d1b629be8df443508b8fff3ef44146cf9368d  benchmarks/rung05-profile-armv7
+f91ef5915cf88f3cda27e73f79820e0b8c7ac270e2bd077e4b032cd975711669  models/smollm2-135m-q8.bin
+61c01079531e552d20ef84247c5f184d67f8bb7baf73e48e96922d222e47b0a3  models/smollm2-135m.tok

@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "model.h"
+#include "profile.h"
 #include "worker.h"
 
 namespace unremarkable {
@@ -61,6 +62,11 @@ class Engine {
   std::span<float> prefill(std::span<const int> tokens, int batch_size = kMaxPrefillBatch);
   void reset();
 
+#ifdef UNREMARKABLE_PROFILE
+  // Totals since construction; subtract two snapshots for one phase.
+  Profile profile() const;
+#endif
+
  private:
   // output = weight * input, quantizing the input first for Q8_0 weights.
   void project(const float* input, const Matrix& weight, float* output);
@@ -74,6 +80,7 @@ class Engine {
   Scratch scratch_;   // Temporary calculations for a token or prompt chunk.
   RowWorker worker_;  // Joined before scratch and model storage are destroyed.
   int next_position_ = 0;
+  [[no_unique_address]] Profiler profiler_;  // Empty unless -DUNREMARKABLE_PROFILE.
 };
 
 }  // namespace unremarkable
