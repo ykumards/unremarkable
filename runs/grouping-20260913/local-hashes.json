@@ -1,0 +1,7 @@
+{
+  "grouping-baseline-armv7": "2b93e108c6d1375c3957d6976d9a83ac2cefd0c7292762c861c67ccb036d63c4",
+  "grouping-candidate-armv7": "937bbb352246a46674a6f32bc2f6fe963f7864e9f97f0257ad25b1fb80fb72af",
+  "grouping-test-prefill-armv7": "e9bd691016140cadbeaaaea1e3ceeef22ef854b3bf65b12952897653a2daae4b",
+  "grouping-test-fp32.bin": "dc289a1830235fd5f24cad87df342f6e62f5e25c3ba2633b4b5e9d38aa11f491",
+  "grouping-test-q8.bin": "46526fe4cc3972eb9645aed737ade1f92d6ff90faec0d0c7e13b853c8ec85acc"
+}

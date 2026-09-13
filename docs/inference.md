@@ -189,6 +189,15 @@ write disjoint score and output slices. No reduction between threads is needed.
 The caller waits before the output projection; batched prefill does this for
 each query position in turn. With `-j 1`, all heads stay on the caller.
 
+Rung 10 groups projections that share an input: Q/K/V and gate/up.
+`Engine::project_group()` quantizes each input token once and splits the combined
+row range in half. For SmolLM2's Q/K/V, that range is 576 + 192 + 192 rows:
+the caller takes Q's first 480 rows; the worker takes the remaining Q rows and
+all K/V rows. Gate and up each have 1536 rows, so one core handles each matrix.
+Weights stay in place. Batched outputs keep each matrix's own row stride.
+This removes 90 duplicate input quantizations and projection jobs per decoded
+token: 211 becomes 121, plus the unchanged 30 attention jobs.
+
 [worker.cpp](../src/worker.cpp) contains the wake/wait logic. The worker is created
 once per engine and joined before its buffers are destroyed. `-j 1` (the default)
 creates no worker. See the [measurements](optimizations.md) for speed and output

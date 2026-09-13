@@ -1,0 +1,4 @@
+2b93e108c6d1375c3957d6976d9a83ac2cefd0c7292762c861c67ccb036d63c4  benchmarks/grouping-baseline-armv7
+937bbb352246a46674a6f32bc2f6fe963f7864e9f97f0257ad25b1fb80fb72af  benchmarks/grouping-candidate-armv7
+f91ef5915cf88f3cda27e73f79820e0b8c7ac270e2bd077e4b032cd975711669  models/smollm2-135m-q8.bin
+61c01079531e552d20ef84247c5f184d67f8bb7baf73e48e96922d222e47b0a3  models/smollm2-135m.tok

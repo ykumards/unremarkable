@@ -1,0 +1,16 @@
+{
+  "checkpoint": "models/smollm2-135m-q8.bin",
+  "token_ids": [
+    1,
+    19,
+    43,
+    7,
+    81,
+    28,
+    82,
+    198
+  ],
+  "baseline_threads": 1,
+  "candidate_threads": 2,
+  "exact_match": true
+}
