@@ -14,11 +14,9 @@ git diff rung-02 rung-03 -- src/
 | [03: SIMD](https://github.com/ykumards/unremarkable/tree/rung-03) | Four NEON vectors, 16 partial sums | Arithmetic | 1.75 |
 | [04: Q8](https://github.com/ykumards/unremarkable/tree/rung-04) | 32 int8 weights per scale | Memory traffic and size | 3.80 |
 | [05: two threads](https://github.com/ykumards/unremarkable/tree/milestone/05-q8-threads) | Split projection rows across cores | Parallel execution | 5.76 |
-| Six-op dot product | Pair integer products before widening | Instructions inside each Q8 group | |
+| [06: six-op dot](https://github.com/ykumards/unremarkable/tree/milestone/06-q8-six-op) | Pair products before widening | Instructions per Q8 block | 6.32 |
 
-The remaining steps exist on [`optimized`](https://github.com/ykumards/unremarkable/tree/optimized).
-We port and measure them separately. The runs below explain why prefetch comes
-before SIMD in this ladder.
+The runs below measure each change and explain why prefetch comes before SIMD.
 
 ## Measured: 01 on the tablet (2026-09-12)
 
@@ -130,8 +128,7 @@ Peak memory falls from 539.6 to 170.8 MiB. This Q8 run completed with the tablet
 UI running.
 
 Quantization changes results: perplexity rises 0.6% (see the accuracy section
-below), and the 64-token text differs from FP32's (`4ea6b63a`). The logits are
-byte-identical to the Q8 engine on `optimized`.
+below), and the 64-token text differs from FP32's (`4ea6b63a`).
 
 ```sh
 make chat-model-q8   # tools/export_hf.py -q q8_0; needs numpy
@@ -165,9 +162,8 @@ Python calculation reproduces loss and KL at four positions. For the control,
 the exporter uses limits of 7 instead of 127 in `quantize_q8_0`: 15 levels
 (−7…7) instead of 255. Its perplexity rises 48%.
 
-Scores come from the host build, where Q8_0 logits match `optimized` byte for
-byte. SmolLM2 is instruction-tuned and has likely seen Wikipedia, so its absolute
-perplexity here says less than the gap between the two checkpoints.
+Scores come from the host build. This comparison measures the quantization loss
+on WikiText-2, not general instruction-following quality.
 
 ## Measured: 05 on the tablet (2026-09-13)
 
@@ -199,3 +195,56 @@ Validation: 17 engine tests and the worker test pass normally and with
 ASan/UBSan; the worker test also passes ThreadSanitizer. FP32 and Q8 logits match
 between thread counts, including reset, odd row counts, and padded Q8 tails.
 ARMv7 build and formatting pass. The kernel arithmetic is unchanged from rung 04.
+
+## Measured: 06 on the tablet (2026-09-13)
+
+[Raw runs](../runs/q8-six-op-20260913/) · [PR #6](https://github.com/ykumards/unremarkable/pull/6).
+
+The Q8 dot product now pairs products in int16 before widening to int32:
+
+| Per 32-value block | Rung 05 | Rung 06 |
+| --- | --- | --- |
+| Multiply into int16 | 4 `vmull_s8` | 2 `vmull_s8` + 2 `vmlal_s8` |
+| Sum into int32 | 4 `vpadalq_s16` | 1 `vpaddlq_s16` + 1 `vpadalq_s16` |
+| Arithmetic instructions | 8 | 6 |
+
+Loads, final lane reduction, scale application, and the worker are unchanged.
+Paired products fit int16: `2 × 128 × 127 = 32512`. Input values must stay in
+`[-127, 127]`, as the quantizer guarantees; weights may include `-128`.
+
+| Kernel, two threads | Runs (tok/s) | Mean ± sample std | Mean TTFT | Peak RSS |
+| --- | --- | ---: | ---: | ---: |
+| Rung 05: eight-op | 5.770, 5.787 | 5.779 ± 0.012 | 3.972 s | 170.86 MiB |
+| **Rung 06: six-op** | 6.324, 6.311 | **6.318 ± 0.009** | **3.578 s** | 170.90 MiB |
+
+Decode improved **9.3%** and TTFT fell **9.9%** in this short comparison.
+All four outputs are byte-identical (`4ea6b63a`). Each variant has two measured
+runs; compare against this run's baseline, rather than pooling older timings.
+
+The benchmark used SmolLM2-135M Q8, two threads, context 512, the 26-token
+lighthouse prompt, greedy seed 1, and 64 generated tokens (63 timed decode
+steps). Both binaries ran on the same boot with the UI active and the governor
+set to `ondemand`: one 16-token warmup each, then eight-op, six-op, six-op,
+eight-op. Warmups are excluded from the table.
+
+Validation: all 65,280 supported input/weight pairs, mixed signs, scales, zero
+inputs, and tails pass on host NEON, host scalar, and tablet ARMv7. The 17 engine
+tests and worker tests pass, including ASan/UBSan; formatting passes. Host
+SmolLM2 logits match rung 05 exactly at four tested positions. The saved ARMv7
+assembly excerpt confirms six arithmetic instructions.
+
+## Memory ceiling
+
+Sequential reads measured on the tablet on 2026-09-10: a 144 MiB buffer,
+eight passes, using NEON loads and prefetch.
+
+| Threads | Read bandwidth (GB/s) |
+| --- | ---: |
+| 1 | 1.423 |
+| 2 | 2.708 |
+| 3 | 2.643 |
+| 4 | 2.630 |
+
+Q8 weights occupy about 0.151 GB including scales. Streaming them once per token
+gives **2.708 ÷ 0.151 ≈ 17.9 tok/s**. This estimate assigns all measured bandwidth
+to weight reads; it excludes arithmetic, KV-cache traffic, and synchronization.

@@ -14,7 +14,9 @@
 fixture, tokenizer checks, context/reset checks, sampling checks, and malformed
 input checks. `make check-sanitize` adds address/undefined-behavior sanitizers.
 The worker tests cover row coverage, repeated jobs, shutdown, and thread limits;
-the forward tests compare one-thread and two-thread logits and reset.
+the forward tests compare one-thread and two-thread logits and reset. Q8 kernel
+tests cover all supported input/weight pairs, mixed lanes, scales, and tails
+on both NEON and scalar paths.
 `make check-format` enforces the repository's 100-column C++ style.
 
 For TinyStories fixtures run `make test-models` first. Tokenizer parity tests also

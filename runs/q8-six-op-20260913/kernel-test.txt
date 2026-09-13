@@ -1,0 +1,1 @@
+Q8: all 65280 input/weight pairs, mixed lanes, scales, zero input, and tails passed
