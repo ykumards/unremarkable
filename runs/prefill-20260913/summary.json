@@ -1,0 +1,69 @@
+{
+  "parent_commit": "a247971",
+  "source_commit": "3fecb0b",
+  "output_sha256": "4ea6b63a2f2397457b1066150e6e49e40d3102a26513077bf2193e70dcd2026e",
+  "comparisons": {
+    "parent": {
+      "runs": [
+        "0-old"
+      ],
+      "prefill_ms_mean": 3794.697,
+      "prefill_ms_sample_std": null,
+      "ttft_ms_mean": 3796.327,
+      "ttft_ms_sample_std": null,
+      "decode_tok_s_mean": 6.043,
+      "decode_tok_s_sample_std": null,
+      "prefill_tok_s_mean": 6.851666944686229,
+      "prefill_tok_s_sample_std": null,
+      "peak_rss_mib_max": 170.875
+    },
+    "legacy_b0": {
+      "runs": [
+        "1-b0",
+        "6-b0"
+      ],
+      "prefill_ms_mean": 3935.2925,
+      "prefill_ms_sample_std": 259.54849378199043,
+      "ttft_ms_mean": 3936.7325,
+      "ttft_ms_sample_std": 259.5880917617369,
+      "decode_tok_s_mean": 5.9175,
+      "decode_tok_s_sample_std": 0.15627059864222642,
+      "prefill_tok_s_mean": 6.621279725656747,
+      "prefill_tok_s_sample_std": 0.43670024012279657,
+      "peak_rss_mib_max": 171.129
+    },
+    "last_logits_b1": {
+      "runs": [
+        "2-b1",
+        "5-b1"
+      ],
+      "prefill_ms_mean": 3287.1265,
+      "prefill_ms_sample_std": 83.7956891045119,
+      "ttft_ms_mean": 3288.5735,
+      "ttft_ms_sample_std": 83.74902005695373,
+      "decode_tok_s_mean": 5.986000000000001,
+      "decode_tok_s_sample_std": 0.005656854249492385,
+      "prefill_tok_s_mean": 7.91221473988676,
+      "prefill_tok_s_sample_std": 0.2016988048594077,
+      "peak_rss_mib_max": 171.137
+    },
+    "batched_b8": {
+      "runs": [
+        "3-b8",
+        "4-b8"
+      ],
+      "prefill_ms_mean": 2636.7615,
+      "prefill_ms_sample_std": 6.678623548306736,
+      "ttft_ms_mean": 2638.174,
+      "ttft_ms_sample_std": 6.675088014400726,
+      "decode_tok_s_mean": 6.0525,
+      "decode_tok_s_sample_std": 0.003535533905932662,
+      "prefill_tok_s_mean": 9.86061249836142,
+      "prefill_tok_s_sample_std": 0.02497583449708467,
+      "peak_rss_mib_max": 171.16
+    }
+  },
+  "ttft_reduction_fraction_vs_legacy": 0.3298569308430278,
+  "ttft_reduction_fraction_vs_last_logits": 0.19777557047151295,
+  "prefill_speedup_vs_legacy": 1.4924719205737795
+}

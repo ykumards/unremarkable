@@ -36,17 +36,19 @@ float* KVCache::values_for_layer(int layer) {
 }
 
 Scratch::Scratch(const Config& config)
-    : residual(config.dim),
-      normalized(config.dim),
-      query(config.dim),
-      attention_output(config.dim),
-      projected(config.dim),
-      gate(config.hidden_dim),
-      up(config.hidden_dim),
+    : residual(static_cast<size_t>(kMaxPrefillBatch) * config.dim),
+      normalized(static_cast<size_t>(kMaxPrefillBatch) * config.dim),
+      query(static_cast<size_t>(kMaxPrefillBatch) * config.dim),
+      attention_output(static_cast<size_t>(kMaxPrefillBatch) * config.dim),
+      projected(static_cast<size_t>(kMaxPrefillBatch) * config.dim),
+      gate(static_cast<size_t>(kMaxPrefillBatch) * config.hidden_dim),
+      up(static_cast<size_t>(kMaxPrefillBatch) * config.hidden_dim),
       attention_scores(static_cast<size_t>(config.n_heads) * config.seq_len),
       logits(config.vocab_size),
-      quantized(config.format == Format::kQ8_0 ? q8_blocks(std::max(config.dim, config.hidden_dim))
-                                               : 0) {}
+      quantized(config.format == Format::kQ8_0
+                    ? static_cast<size_t>(kMaxPrefillBatch) *
+                          q8_blocks(std::max(config.dim, config.hidden_dim))
+                    : 0) {}
 
 Engine::Engine(const std::string& checkpoint, int context, int threads)
     : model_(checkpoint),

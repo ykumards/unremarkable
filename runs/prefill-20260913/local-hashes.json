@@ -1,0 +1,7 @@
+{
+  "build/rung06-armv7": "a82eb17e87b87afe0b27c0cec0ea6dc60c90c12d832ce15ef3740931056aaa5f",
+  "build/unremarkable-armv7": "ed558d33e5cffd11546b41bf879c37295974485ff4e2f12615312229039a5a66",
+  "build/test-prefill-armv7": "80647e218851ca6f9ef52b0f33b03eabb24e2a640a2f8d45f0f32cd99cc50926",
+  "build/prefill-fp32.bin": "9be90aa92ec984e8aa365cb677ecd88adc31c1ad981430631f6ac450ddd78213",
+  "build/prefill-q8.bin": "61260fa7ff7b314d0b0a55de804195843739a0bf4f3b2ccb609f721d9c1322ab"
+}

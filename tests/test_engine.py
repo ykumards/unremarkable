@@ -95,13 +95,13 @@ def quantize_q8(values, columns):
 
 
 def reference_model(path, shared, kv_heads, theta=10000.0, tagged=False, quantize=False,
-                    dim=16, hidden=24):
+                    dim=16, hidden=24, context=6):
     """Independent float64 forward oracle; tiny random checkpoint on disk.
 
     With quantize set the matrices are written as Q8_0, and the oracle quantizes
     each projection input as the engine does. Norm vectors stay FP32 either way.
     """
-    layers, heads, vocab, context = 2, 4, 512, 6
+    layers, heads, vocab = 2, 4, 512
     head = dim // heads
     kv = head * kv_heads
     rng = random.Random(17)
@@ -254,6 +254,26 @@ class EngineTests(unittest.TestCase):
                             self.assertEqual(run.returncode, 0, run.stderr.decode())
                         self.assertEqual(runs[0].stdout, runs[1].stdout)
 
+    def test_batched_prefill_matches_sequential(self):
+        with tempfile.TemporaryDirectory() as directory:
+            model = Path(directory) / "prefill.bin"
+            for quantized in (False, True):
+                for shared in (False, True):
+                    with self.subTest(quantized=quantized, shared=shared):
+                        reference_model(model, shared, 1, tagged=True, quantize=quantized,
+                                        dim=64, hidden=73, context=18)
+                        result = subprocess.run([str(PREFILL), str(model)], capture_output=True,
+                                                timeout=90)
+                        self.assertEqual(result.returncode, 0, result.stderr.decode())
+
+    def test_prefill_modes_preserve_generation(self):
+        outputs = []
+        for batch in (0, 1, 3, 8):
+            output, stats = self.run_engine("-b", batch, "-j", 2, "-i", "Once upon a time", "-n", 16)
+            self.assertEqual(stats["prefill_batch"], batch)
+            outputs.append(output)
+        self.assertTrue(all(output == outputs[0] for output in outputs))
+
     def test_tagged_format_and_rope_base(self):
         """The tagged header carries its own RoPE base and drops the legacy tables."""
         with tempfile.TemporaryDirectory() as directory:
@@ -388,7 +408,7 @@ class EngineTests(unittest.TestCase):
         for args in (("-n", 0), ("-n", "12oops"), ("-n", 2**40),
                      ("-t", "nan"), ("-t", "inf"), ("-t", -1), ("-s", 0),
                      ("-p", 1.1), ("-c", 513), ("-i", "hello", "-c", 1),
-                     ("-x", 1), ("-j", 0), ("-j", 3), ("-n",)):
+                     ("-x", 1), ("-j", 0), ("-j", 3), ("-b", -1), ("-b", 9), ("-n",)):
             with self.subTest(args=args):
                 self.run_engine(*args, ok=False)
 
@@ -420,9 +440,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--probe", type=Path, required=True)
+    parser.add_argument("--prefill", type=Path, required=True)
     args = parser.parse_args()
     BINARY = args.binary.resolve()
     PROBE = args.probe.resolve()
+    PREFILL = args.prefill.resolve()
     if not MODEL.exists() or not TOKENIZER.exists():
         raise SystemExit("Missing test fixtures. Run `make test-models` first.")
     unittest.main(argv=["test_engine.py"], verbosity=2)
