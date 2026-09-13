@@ -14,7 +14,7 @@ TinyStories 15M and SmolLM2-135M-Instruct, with optional tablet UI patches.
 
 ## Ceiling
 
-![6.51 tok/s toward a 17.9 tok/s target](assets/tps-progress.svg?v=6.51)
+![6.35 tok/s toward a 17.9 tok/s target](assets/tps-progress.svg?v=6.35)
 
 SmolLM2-135M, Q8, two cores: **2.708 GB/s ÷ 0.151 GB/token ≈ 17.9 tok/s**
 memory-only ceiling. [Calculation](docs/optimizations.md#memory-ceiling)
