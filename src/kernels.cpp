@@ -56,18 +56,20 @@ float dot_fp32(const float* weights, const float* input, int size) {
   return sum;
 }
 
-// One 32-value Q8 block. Multiply into int16, then widen sums to int32.
+// Pair products in int16 before widening. Inputs are in [-127, 127], so even
+// weights of -128 give at most 2 * 128 * 127 = 32512, which fits int16.
 int32_t dot_q8_block(const int8_t* weights, const int8_t* input) {
 #if defined(__ARM_NEON) && !defined(UNREMARKABLE_SCALAR)
   const int8x16_t weights0 = vld1q_s8(weights);
   const int8x16_t weights1 = vld1q_s8(weights + 16);
   const int8x16_t input0 = vld1q_s8(input);
   const int8x16_t input1 = vld1q_s8(input + 16);
-  int32x4_t sums =
-      vpadalq_s16(vdupq_n_s32(0), vmull_s8(vget_low_s8(weights0), vget_low_s8(input0)));
-  sums = vpadalq_s16(sums, vmull_s8(vget_high_s8(weights0), vget_high_s8(input0)));
-  sums = vpadalq_s16(sums, vmull_s8(vget_low_s8(weights1), vget_low_s8(input1)));
-  sums = vpadalq_s16(sums, vmull_s8(vget_high_s8(weights1), vget_high_s8(input1)));
+  int16x8_t products0 = vmull_s8(vget_low_s8(weights0), vget_low_s8(input0));
+  products0 = vmlal_s8(products0, vget_high_s8(weights0), vget_high_s8(input0));
+  int16x8_t products1 = vmull_s8(vget_low_s8(weights1), vget_low_s8(input1));
+  products1 = vmlal_s8(products1, vget_high_s8(weights1), vget_high_s8(input1));
+  int32x4_t sums = vpaddlq_s16(products0);
+  sums = vpadalq_s16(sums, products1);
   const int32x2_t pair = vadd_s32(vget_low_s32(sums), vget_high_s32(sums));
   return vget_lane_s32(vpadd_s32(pair, pair), 0);
 #else

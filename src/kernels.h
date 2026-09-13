@@ -17,7 +17,8 @@ void matvec(const float* input, Matrix weight, float* output);
 // Quantize [size] values into q8_blocks(size) blocks, symmetric about zero.
 void quantize_q8(const float* input, int size, Q8Block* output);
 // As matvec for a Q8_0 weight, with the input from quantize_q8. The integer dot
-// within each group is exact; groups accumulate in FP32.
+// within each group is exact; groups accumulate in FP32. Input values must
+// be in [-127, 127]; weight values may use the full int8 range.
 void matvec_q8(const Q8Block* input, Matrix weight, float* output);
 
 // Copy row `token` of the embedding table into output [table.columns].

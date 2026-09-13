@@ -75,11 +75,14 @@ build/probe-sanitize: tests/probe.cpp $(CORE) $(HEADERS) Makefile | build
 	$(CXX) $(CPPFLAGS) -O1 -g -std=c++23 -Wall -Wextra -ffp-contract=off \
 		-fsanitize=address,undefined -fno-omit-frame-pointer tests/probe.cpp $(CORE) $(LDLIBS) -o $@
 
-test: build/unremarkable build/probe build/test-worker
+test: build/unremarkable build/probe build/test-worker build/test-q8 build/test-q8-scalar
+	./build/test-q8
+	./build/test-q8-scalar
 	./build/test-worker
 	$(PYTHON) tests/test_engine.py --binary build/unremarkable --probe build/probe
 
-sanitize: build/unremarkable-sanitize build/probe-sanitize build/test-worker-sanitize
+sanitize: build/unremarkable-sanitize build/probe-sanitize build/test-worker-sanitize build/test-q8-sanitize
+	./build/test-q8-sanitize
 	./build/test-worker-sanitize
 	$(PYTHON) tests/test_engine.py --binary build/unremarkable-sanitize --probe build/probe-sanitize
 
@@ -90,11 +93,21 @@ build/test-worker-sanitize: tests/worker.cpp src/worker.cpp src/worker.h Makefil
 	$(CXX) $(CPPFLAGS) -O1 -g -std=c++23 -fsanitize=address,undefined \
 		-fno-omit-frame-pointer tests/worker.cpp src/worker.cpp $(LDLIBS) -o $@
 
+build/test-q8: tests/q8.cpp src/kernels.cpp src/kernels.h src/model.h Makefile | build
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) tests/q8.cpp src/kernels.cpp $(LDLIBS) -o $@
+
+build/test-q8-scalar: tests/q8.cpp src/kernels.cpp src/kernels.h src/model.h Makefile | build
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -DUNREMARKABLE_SCALAR tests/q8.cpp src/kernels.cpp $(LDLIBS) -o $@
+
+build/test-q8-sanitize: tests/q8.cpp src/kernels.cpp src/kernels.h src/model.h Makefile | build
+	$(CXX) $(CPPFLAGS) -O1 -g -std=c++23 -ffp-contract=off -fsanitize=address,undefined \
+		-fno-omit-frame-pointer tests/q8.cpp src/kernels.cpp $(LDLIBS) -o $@
+
 .PHONY: check check-sanitize format check-format
 check: test
 check-sanitize: sanitize
 CLANG_FORMAT ?= $(firstword $(shell command -v clang-format 2>/dev/null) $(wildcard /opt/homebrew/opt/llvm@21/bin/clang-format /opt/homebrew/opt/llvm/bin/clang-format) clang-format)
 format:
-	$(CLANG_FORMAT) -i $(SOURCES) $(HEADERS) tests/probe.cpp tests/worker.cpp tools/perplexity.cpp
+	$(CLANG_FORMAT) -i $(SOURCES) $(HEADERS) tests/probe.cpp tests/worker.cpp tests/q8.cpp tools/perplexity.cpp
 check-format:
-	$(CLANG_FORMAT) --dry-run --Werror $(SOURCES) $(HEADERS) tests/probe.cpp tests/worker.cpp tools/perplexity.cpp
+	$(CLANG_FORMAT) --dry-run --Werror $(SOURCES) $(HEADERS) tests/probe.cpp tests/worker.cpp tests/q8.cpp tools/perplexity.cpp
