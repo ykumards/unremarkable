@@ -115,6 +115,10 @@ def export_model(source, output, context, quantize=False):
     head_size = dim // heads
     kv_dim = head_size * kv_heads
     context = min(context, config["max_position_embeddings"])
+    # Transformers 5 nests the RoPE base under rope_parameters.
+    theta = config.get("rope_theta", config.get("rope_parameters", {}).get("rope_theta"))
+    if theta is None:
+        raise ValueError("config has no rope_theta")
     if dim % heads or heads % kv_heads or head_size % 2:
         raise ValueError("model dimensions are incompatible with this engine")
 
@@ -134,11 +138,11 @@ def export_model(source, output, context, quantize=False):
         if quantize:
             out.write(struct.pack("<Ii7ifi", MODEL_MAGIC, VERSION_QUANT, dim, hidden, layers,
                                   heads, kv_heads, vocab if shared else -vocab, context,
-                                  float(config["rope_theta"]), QUANT_Q8_0))
+                                  float(theta), QUANT_Q8_0))
         else:
             out.write(struct.pack("<Ii7if", MODEL_MAGIC, VERSION, dim, hidden, layers, heads,
                                   kv_heads, vocab if shared else -vocab, context,
-                                  float(config["rope_theta"])))
+                                  float(theta)))
         matrix(weights.tensor("model.embed_tokens.weight", (vocab, dim)), dim)
         for i in range(layers):
             out.write(weights.tensor(layer(i, "input_layernorm"), (dim,)))
@@ -181,7 +185,11 @@ def export_tokenizer(source, output, vocab_size):
     model = spec["model"]
     if model["type"] != "BPE" or model.get("byte_fallback"):
         raise ValueError("expected a byte-level BPE tokenizer")
-    if spec.get("normalizer") or spec.get("post_processor"):
+    post = spec.get("post_processor")
+    # Transformers 5 saves a template that adds no tokens; it changes nothing.
+    passthrough = post and post["type"] == "TemplateProcessing" and not post["special_tokens"] \
+        and post["single"] == [{"Sequence": {"id": "A", "type_id": 0}}]
+    if spec.get("normalizer") or (post and not passthrough):
         raise ValueError("normalizers and post-processors are not supported")
     vocab = model["vocab"]
     if len(vocab) != vocab_size:

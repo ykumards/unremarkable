@@ -5,3 +5,6 @@
 __pycache__/
 *.pyc
 .DS_Store
+/train/.venv/
+/train/data/
+/train/out/
